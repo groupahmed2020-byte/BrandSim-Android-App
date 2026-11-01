@@ -409,4 +409,17 @@ public class MainActivity extends Activity {
             String extractedPhone = extractCleanPhone(fullMsg.toString());
             if (extractedPhone != null) {
                 long now = SystemClock.elapsedRealtime();
-                
+                            if (extractedPhone.equals(lastProcessedPhone) && (now - lastProcessedTime) < 15000) return;
+                lastProcessedPhone = extractedPhone;
+                lastProcessedTime = now;
+                startBackgroundRefreshService(context, extractedPhone, sender);
+            }
+        }
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (mainWebView != null && mainWebView.canGoBack()) mainWebView.goBack();
+        else super.onBackPressed();
+    }
+}
