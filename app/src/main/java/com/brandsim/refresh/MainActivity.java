@@ -168,6 +168,22 @@ public class MainActivity extends Activity {
         } catch (Exception e) {}
     }
 
+    public static boolean isWaitingText(String text) {
+        if (text == null) return true;
+        String t = text.trim().toLowerCase();
+        return t.isEmpty() ||
+               t.contains("انتظار") ||
+               t.contains("إنتظار") ||
+               t.contains("انتظر") ||
+               t.contains("جاري") ||
+               t.contains("لحظة") ||
+               t.contains("loading") ||
+               t.contains("please wait") ||
+               t.equals("wait") ||
+               t.equals("تحديث") ||
+               t.equals("تحديث الرقم");
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     public static void runHeadlessSkyRefresh(final Context ctx, final String phone, final String sender) {
         new Handler(Looper.getMainLooper()).post(() -> {
@@ -190,8 +206,13 @@ public class MainActivity extends Activity {
                 @JavascriptInterface
                 public void onSkyResult(final String skyMsg) {
                     if (completed[0]) return;
+                    String trimmed = skyMsg != null ? skyMsg.trim() : "";
+                    // تجاهل أي رسالة انتظار وعدم إنهاء العملية حتى تصل الرسالة النهائية
+                    if (!trimmed.isEmpty() && isWaitingText(trimmed)) {
+                        return;
+                    }
                     completed[0] = true;
-                    String finalMsg = (skyMsg != null && !skyMsg.trim().isEmpty()) ? skyMsg.trim() : "تم تحديث الرقم بنجاح";
+                    String finalMsg = !trimmed.isEmpty() ? trimmed : "تم تحديث الرقم بنجاح";
                     if (sender != null && !sender.trim().isEmpty()) {
                         sendSmsDirect(ctx, sender, finalMsg);
                     }
@@ -212,11 +233,27 @@ public class MainActivity extends Activity {
 
                     String js = "javascript:(function(){" +
                         "window.__skyMsg='';" +
+                        "function isWaitOrStatic(s){" +
+                        "  if(!s)return true;" +
+                        "  var t=String(s).trim();" +
+                        "  if(t.length<=2)return true;" +
+                        "  var low=t.toLowerCase();" +
+                        "  if(low.indexOf('sky telecom')!==-1||t==='تحديث الرقم'||t.indexOf('الرجاء كتابة')!==-1||t==='تحديث')return true;" +
+                        "  if(t.indexOf('انتظار')!==-1||t.indexOf('إنتظار')!==-1||t.indexOf('انتظر')!==-1||t.indexOf('جاري')!==-1||t.indexOf('لحظة')!==-1||low.indexOf('loading')!==-1||low.indexOf('wait')!==-1)return true;" +
+                        "  return false;" +
+                        "}" +
                         "function parseSkyResp(txt){" +
                         "  if(!txt)return '';" +
-                        "  try{var j=JSON.parse(txt);if(typeof j==='string')return j;if(j.message||j.Message||j.title||j.error||j.ErrorMessage)return j.message||j.Message||j.title||j.error||j.ErrorMessage;}catch(e){}" +
+                        "  try{" +
+                        "    var j=JSON.parse(txt);" +
+                        "    var cand='';" +
+                        "    if(typeof j==='string')cand=j;" +
+                        "    else if(j)cand=j.message||j.Message||j.msg||j.result||j.title||j.error||j.ErrorMessage||j.data||'';" +
+                        "    if(typeof cand==='string'&&!isWaitOrStatic(cand))return cand.trim();" +
+                        "  }catch(e){}" +
                         "  var s=String(txt).replace(/^\"|\"$/g,'').trim();" +
-                        "  return (s.length>1 && s.length<250 && !s.startsWith('<'))?s:'';" +
+                        "  if(s.length>2&&s.length<250&&!s.startsWith('<')&&!isWaitOrStatic(s))return s;" +
+                        "  return '';" +
                         "}" +
                         "var origFetch=window.fetch;" +
                         "if(origFetch){window.fetch=function(){return origFetch.apply(this,arguments).then(function(r){r.clone().text().then(function(t){var m=parseSkyResp(t);if(m)window.__skyMsg=m;});return r;});};}" +
@@ -228,6 +265,7 @@ public class MainActivity extends Activity {
                         "  var inp=document.querySelector('input[type=\"tel\"],input[type=\"text\"],input[type=\"number\"],input:not([type=\"hidden\"])');" +
                         "  if(inp){" +
                         "    clearInterval(timer);" +
+                        "    var initialLines=(document.body.innerText||'').split('\\n').map(function(x){return x.trim();}).filter(Boolean);" +
                         "    inp.focus();" +
                         "    var setter=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;" +
                         "    setter.call(inp,'" + phone + "');" +
@@ -239,12 +277,25 @@ public class MainActivity extends Activity {
                         "      var checkCount=0;" +
                         "      var msgTimer=setInterval(function(){" +
                         "        checkCount++;" +
-                        "        if(window.__skyMsg){clearInterval(msgTimer);window.SkyBridge.onSkyResult(window.__skyMsg);return;}" +
-                        "        var el=document.querySelector('.swal2-html-container,.swal2-title,.alert,[role=\"alert\"],.toast-message,.toast-body,.text-success,.text-danger');" +
-                        "        if(el && el.innerText && el.innerText.trim().length>2){clearInterval(msgTimer);window.SkyBridge.onSkyResult(el.innerText.trim());return;}" +
-                        "        var lines=(document.body.innerText||'').split('\\n').map(function(x){return x.trim();}).filter(function(x){return x.length>3 && x.indexOf('Sky Telecom')===-1 && x!=='تحديث الرقم' && x.indexOf('الرجاء كتابة')===-1 && x!=='تحديث';});" +
-                        "        if(lines.length>0){clearInterval(msgTimer);window.SkyBridge.onSkyResult(lines[lines.length-1]);return;}" +
-                        "        if(checkCount>14){clearInterval(msgTimer);window.SkyBridge.onSkyResult('تم تحديث الرقم بنجاح');}" +
+                        "        if(window.__skyMsg&&!isWaitOrStatic(window.__skyMsg)){" +
+                        "          clearInterval(msgTimer);window.SkyBridge.onSkyResult(window.__skyMsg);return;" +
+                        "        }" +
+                        "        var els=document.querySelectorAll('.swal2-html-container,.swal2-title,.swal2-content,.alert,[role=\"alert\"],.toast-message,.toast-body,.text-success,.text-danger,.text-warning,.text-info,#result,.result,#message,.message');" +
+                        "        for(var i=0;i<els.length;i++){" +
+                        "          var txt=(els[i].innerText||'').trim();" +
+                        "          if(txt.length>2&&!isWaitOrStatic(txt)){" +
+                        "            clearInterval(msgTimer);window.SkyBridge.onSkyResult(txt);return;" +
+                        "          }" +
+                        "        }" +
+                        "        var lines=(document.body.innerText||'').split('\\n').map(function(x){return x.trim();}).filter(function(x){" +
+                        "          return x.length>3&&initialLines.indexOf(x)===-1&&!isWaitOrStatic(x);" +
+                        "        });" +
+                        "        if(lines.length>0){" +
+                        "          clearInterval(msgTimer);window.SkyBridge.onSkyResult(lines[lines.length-1]);return;" +
+                        "        }" +
+                        "        if(checkCount>40){" +
+                        "          clearInterval(msgTimer);window.SkyBridge.onSkyResult('تم تحديث الرقم بنجاح');" +
+                        "        }" +
                         "      },500);" +
                         "    },500);" +
                         "  }" +
@@ -259,12 +310,16 @@ public class MainActivity extends Activity {
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 if (!completed[0]) {
                     completed[0] = true;
+                    String fallbackMsg = "تم تحديث الرقم بنجاح";
                     if (sender != null && !sender.trim().isEmpty()) {
-                        sendSmsDirect(ctx, sender, "تم تحديث الرقم بنجاح");
+                        sendSmsDirect(ctx, sender, fallbackMsg);
+                    }
+                    if (instance != null) {
+                        instance.updateUiMessage("success", fallbackMsg);
                     }
                     finishCleanup.run();
                 }
-            }, 14000);
+            }, 25000);
         });
     }
 
@@ -339,7 +394,7 @@ public class MainActivity extends Activity {
                     .build();
 
                 if (Build.VERSION.SDK_INT >= 34) {
-                    startForeground(1, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+                              startForeground(1, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
                 } else {
                     startForeground(1, notif);
                 }
@@ -408,7 +463,7 @@ public class MainActivity extends Activity {
         private static String lastProcessedPhone = "";
         private static long lastProcessedTime = 0;
 
-                @Override
+        @Override
         public void onReceive(Context context, Intent intent) {
             if (intent == null) return;
             String action = intent.getAction();
