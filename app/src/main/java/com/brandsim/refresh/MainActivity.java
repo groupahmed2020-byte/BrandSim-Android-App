@@ -1,41 +1,18 @@
 package com.brandsim.refresh;
 import android.Manifest;
 import android.annotation.SuppressLint;
-import android.app.Activity;
-import android.app.AlarmManager;
-import android.app.Notification;
-import android.app.NotificationChannel;
-import android.app.NotificationManager;
-import android.app.PendingIntent;
-import android.app.Service;
-import android.content.BroadcastReceiver;
-import android.content.Context;
-import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.content.pm.ServiceInfo;
+import android.app.*;
+import android.content.*;
+import android.content.pm.*;
 import android.net.Uri;
-import android.os.Build;
-import android.os.Bundle;
-import android.os.Handler;
-import android.os.IBinder;
-import android.os.Looper;
-import android.os.PowerManager;
-import android.os.SystemClock;
+import android.os.*;
 import android.provider.Settings;
-import android.telephony.SmsManager;
-import android.telephony.SmsMessage;
+import android.telephony.*;
 import android.view.Window;
-import android.webkit.JavascriptInterface;
-import android.webkit.WebChromeClient;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
+import android.webkit.*;
 import android.widget.Toast;
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.Queue;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.*;
+import java.util.regex.*;
 
 public class MainActivity extends Activity {
     private WebView mainWebView;
@@ -50,8 +27,7 @@ public class MainActivity extends Activity {
         instance = this;
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         checkPermissionsAndBattery();
-        startBackgroundRefreshService(this, null, null);
-
+        startBackgroundRefreshService(this, null, null, null);
         mainWebView = new WebView(this);
         setContentView(mainWebView);
         configureWebView(mainWebView, this);
@@ -81,24 +57,22 @@ public class MainActivity extends Activity {
     public void updateUiMessage(final String type, final String msg) {
         new Handler(Looper.getMainLooper()).post(() -> {
             if (mainWebView != null) {
-                String safeMsg = msg == null ? "" : msg.replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ");
+                String safeMsg = msg == null ? "" : msg.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n");
                 mainWebView.evaluateJavascript("javascript:if(window.showMessage){window.showMessage('" + type + "','" + safeMsg + "');}", null);
             }
         });
     }
 
-    public static void startBackgroundRefreshService(Context context, String phone, String sender) {
+    public static void startBackgroundRefreshService(Context context, String phone, String sender, String mode) {
         try {
             Intent srv = new Intent(context.getApplicationContext(), RefreshService.class);
             if (phone != null) {
                 srv.putExtra("sms_target_phone", phone);
                 srv.putExtra("sms_sender", sender != null ? sender : "");
+                srv.putExtra("sms_mode", mode != null ? mode : "refresh");
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.getApplicationContext().startForegroundService(srv);
-            } else {
-                context.getApplicationContext().startService(srv);
-            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.getApplicationContext().startForegroundService(srv);
+            else context.getApplicationContext().startService(srv);
         } catch (Exception e) {}
     }
 
@@ -106,13 +80,10 @@ public class MainActivity extends Activity {
         try {
             Intent restartIntent = new Intent(context.getApplicationContext(), SmsReceiver.class);
             restartIntent.setAction("com.brandsim.refresh.RESTART_SERVICE");
-            int flags = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
-                PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE : PendingIntent.FLAG_ONE_SHOT;
+            int flags = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE : PendingIntent.FLAG_ONE_SHOT;
             PendingIntent pi = PendingIntent.getBroadcast(context.getApplicationContext(), 777, restartIntent, flags);
             AlarmManager am = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
-            if (am != null) {
-                am.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + 800, pi);
-            }
+            if (am != null) am.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + 800, pi);
         } catch (Exception e) {}
     }
 
@@ -122,11 +93,8 @@ public class MainActivity extends Activity {
             if (checkSelfPermission(Manifest.permission.RECEIVE_SMS) != PackageManager.PERMISSION_GRANTED) perms.add(Manifest.permission.RECEIVE_SMS);
             if (checkSelfPermission(Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) perms.add(Manifest.permission.READ_SMS);
             if (checkSelfPermission(Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) perms.add(Manifest.permission.SEND_SMS);
-            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
-                perms.add("android.permission.POST_NOTIFICATIONS");
-            }
+            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) perms.add("android.permission.POST_NOTIFICATIONS");
             if (!perms.isEmpty()) requestPermissions(perms.toArray(new String[0]), 101);
-
             try {
                 PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
                 if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
@@ -138,22 +106,22 @@ public class MainActivity extends Activity {
         }
     }
 
-    public static String extractCleanPhone(String rawText) {
-        if (rawText == null || rawText.isEmpty()) return null;
-        String trimmed = rawText.trim();
-        if (!lastSentSmsBody.isEmpty() && trimmed.equals(lastSentSmsBody.trim())) return null;
+    public static boolean isIgnoredSystemSms(String rawText) {
+        if (rawText == null || rawText.isEmpty()) return true;
+        String t = rawText.trim();
+        if (!lastSentSmsBody.isEmpty() && t.equals(lastSentSmsBody.trim())) return true;
+        return t.contains("حاول الاتصال") || t.contains("اتصال بك") || t.contains("أصبح متاح") ||
+               t.contains("متاح حاليا") || t.contains("موجود") || t.contains("غير مسجل في منظومة") ||
+               t.contains("قد يستغرق الرد") || t.contains("تاريخ انتهاء الحزمة:");
+    }
 
-        // تجاهل رسائل المكالمات الفائتة (حاول الاتصال بك) ورسائل النظام
-        if (trimmed.contains("حاول الاتصال") ||
-            trimmed.contains("اتصال بك") ||
-            trimmed.contains("أصبح متاح") ||
-            trimmed.contains("متاح حاليا") ||
-            trimmed.contains("موجود") ||
-            trimmed.contains("غير مسجل في منظومة") ||
-            trimmed.contains("قد يستغرق الرد")) {
-            return null;
-        }
+    public static boolean isDetailsRequestSms(String rawText) {
+        if (rawText == null) return false;
+        return Pattern.compile("(تفاصيل|تفصيل|تاريخ|انتهاء|إنتهاء|تنتهي|ينتهي|بتنتهي|بنتهي|حزمة|حزمه|باقة|باقه|متى|موعد|استعلام|إستعلام|صلاحية|صلاحيه|اشتراك|إشتراك|بيانات|معلومات)").matcher(rawText).find();
+    }
 
+    public static String extractCleanPhone(String rawText, boolean allow059ForDetails) {
+        if (isIgnoredSystemSms(rawText)) return null;
         StringBuilder sb = new StringBuilder();
         for (char c : rawText.toCharArray()) {
             if (c >= '٠' && c <= '٩') sb.append((char) ('0' + (c - '٠')));
@@ -164,10 +132,7 @@ public class MainActivity extends Activity {
         Matcher m = Pattern.compile("(?:00972|00970|972|970|0)?(5\\d{8})").matcher(cleaned);
         while (m.find()) {
             String candidate = "0" + m.group(1);
-            // تجاهل أي رقم يبدأ بـ 059 نهائياً
-            if (candidate.startsWith("059")) {
-                continue;
-            }
+            if (candidate.startsWith("059") && !allow059ForDetails) continue;
             return candidate;
         }
         return null;
@@ -181,31 +146,18 @@ public class MainActivity extends Activity {
             SmsManager sms = SmsManager.getDefault();
             ArrayList<String> parts = sms.divideMessage(cleanReply);
             sms.sendMultipartTextMessage(sender, null, parts, null, null);
-            new Handler(Looper.getMainLooper()).post(() ->
-                Toast.makeText(ctx, "تم إرسال رد للزبون: " + sender, Toast.LENGTH_SHORT).show()
-            );
+            new Handler(Looper.getMainLooper()).post(() -> Toast.makeText(ctx, "تم إرسال رد للزبون: " + sender, Toast.LENGTH_SHORT).show());
         } catch (Exception e) {}
     }
 
     public static boolean isWaitingText(String text) {
         if (text == null) return true;
         String t = text.trim().toLowerCase();
-        return t.isEmpty() ||
-               t.contains("انتظار") ||
-               t.contains("إنتظار") ||
-               t.contains("انتظر") ||
-               t.contains("جاري") ||
-               t.contains("لحظة") ||
-               t.contains("يستغرق") ||
-               t.contains("دقيقة") ||
-               t.contains("دقائق") ||
-               t.contains("لتعاونكم") ||
-               t.contains("تعاونكم") ||
-               t.contains("loading") ||
-               t.contains("please wait") ||
-               t.equals("wait") ||
-               t.equals("تحديث") ||
-               t.equals("تحديث الرقم");
+        return t.isEmpty() || t.contains("انتظار") || t.contains("إنتظار") || t.contains("انتظر") ||
+               t.contains("جاري") || t.contains("لحظة") || t.contains("يستغرق") || t.contains("دقيقة") ||
+               t.contains("دقائق") || t.contains("لتعاونكم") || t.contains("تعاونكم") ||
+               t.contains("loading") || t.contains("please wait") || t.equals("wait") ||
+               t.equals("تحديث") || t.equals("تحديث الرقم");
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -217,32 +169,19 @@ public class MainActivity extends Activity {
             ss.setJavaScriptEnabled(true);
             ss.setDomStorageEnabled(true);
             ss.setUserAgentString("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
-
             final boolean[] completed = {false};
-            final Runnable finishCleanup = () -> {
-                try {
-                    skyWebView.stopLoading();
-                    skyWebView.destroy();
-                } catch (Exception e) {}
-            };
+            final Runnable finishCleanup = () -> { try { skyWebView.stopLoading(); skyWebView.destroy(); } catch (Exception e) {} };
 
             skyWebView.addJavascriptInterface(new Object() {
                 @JavascriptInterface
                 public void onSkyResult(final String skyMsg) {
                     if (completed[0]) return;
                     String trimmed = skyMsg != null ? skyMsg.trim() : "";
-                    // تجاهل رسائل الانتظار ورسالة "قد يستغرق الرد من دقيقة إلى 3 دقائق"
-                    if (!trimmed.isEmpty() && isWaitingText(trimmed)) {
-                        return;
-                    }
+                    if (!trimmed.isEmpty() && isWaitingText(trimmed)) return;
                     completed[0] = true;
                     String finalMsg = !trimmed.isEmpty() ? trimmed : "تم تحديث الرقم بنجاح";
-                    if (sender != null && !sender.trim().isEmpty()) {
-                        sendSmsDirect(ctx, sender, finalMsg);
-                    }
-                    if (instance != null) {
-                        instance.updateUiMessage("success", finalMsg);
-                    }
+                    if (sender != null && !sender.trim().isEmpty()) sendSmsDirect(ctx, sender, finalMsg);
+                    if (instance != null) instance.updateUiMessage("success", finalMsg);
                     new Handler(Looper.getMainLooper()).postDelayed(finishCleanup, 1000);
                 }
             }, "SkyBridge");
@@ -254,72 +193,36 @@ public class MainActivity extends Activity {
                     super.onPageFinished(view, url);
                     if (injected) return;
                     injected = true;
-
                     String js = "javascript:(function(){" +
                         "window.__skyMsg='';" +
                         "function isWaitOrStatic(s){" +
-                        "  if(!s)return true;" +
-                        "  var t=String(s).trim();" +
-                        "  if(t.length<=2)return true;" +
-                        "  var low=t.toLowerCase();" +
+                        "  if(!s)return true;var t=String(s).trim();if(t.length<=2)return true;var low=t.toLowerCase();" +
                         "  if(low.indexOf('sky telecom')!==-1||t==='تحديث الرقم'||t.indexOf('الرجاء كتابة')!==-1||t==='تحديث')return true;" +
                         "  if(t.indexOf('انتظار')!==-1||t.indexOf('إنتظار')!==-1||t.indexOf('انتظر')!==-1||t.indexOf('جاري')!==-1||t.indexOf('لحظة')!==-1||t.indexOf('يستغرق')!==-1||t.indexOf('دقيقة')!==-1||t.indexOf('دقائق')!==-1||t.indexOf('لتعاونكم')!==-1||t.indexOf('تعاونكم')!==-1||low.indexOf('loading')!==-1||low.indexOf('wait')!==-1)return true;" +
                         "  return false;" +
                         "}" +
                         "function parseSkyResp(txt){" +
                         "  if(!txt)return '';" +
-                        "  try{" +
-                        "    var j=JSON.parse(txt);" +
-                        "    var cand='';" +
-                        "    if(typeof j==='string')cand=j;" +
-                        "    else if(j)cand=j.message||j.Message||j.msg||j.result||j.title||j.error||j.ErrorMessage||j.data||'';" +
-                        "    if(typeof cand==='string'&&!isWaitOrStatic(cand))return cand.trim();" +
-                        "  }catch(e){}" +
-                        "  var s=String(txt).replace(/^\"|\"$/g,'').trim();" +
-                        "  if(s.length>2&&s.length<250&&!s.startsWith('<')&&!isWaitOrStatic(s))return s;" +
-                        "  return '';" +
+                        "  try{var j=JSON.parse(txt);var cand=typeof j==='string'?j:(j.message||j.Message||j.msg||j.result||j.title||j.error||j.ErrorMessage||j.data||'');if(typeof cand==='string'&&!isWaitOrStatic(cand))return cand.trim();}catch(e){}" +
+                        "  var s=String(txt).replace(/^\"|\"$/g,'').trim();return (s.length>2&&s.length<250&&!s.startsWith('<')&&!isWaitOrStatic(s))?s:'';" +
                         "}" +
-                        "var origFetch=window.fetch;" +
-                        "if(origFetch){window.fetch=function(){return origFetch.apply(this,arguments).then(function(r){r.clone().text().then(function(t){var m=parseSkyResp(t);if(m)window.__skyMsg=m;});return r;});};}" +
-                        "var origSend=XMLHttpRequest.prototype.send;" +
-                        "XMLHttpRequest.prototype.send=function(){this.addEventListener('load',function(){var m=parseSkyResp(this.responseText);if(m)window.__skyMsg=m;});return origSend.apply(this,arguments);};" +
-                        "var attempts=0;" +
-                        "var timer=setInterval(function(){" +
-                        "  attempts++;" +
-                        "  var inp=document.querySelector('input[type=\"tel\"],input[type=\"text\"],input[type=\"number\"],input:not([type=\"hidden\"])');" +
+                        "var origFetch=window.fetch;if(origFetch){window.fetch=function(){return origFetch.apply(this,arguments).then(function(r){r.clone().text().then(function(t){var m=parseSkyResp(t);if(m)window.__skyMsg=m;});return r;});};}" +
+                        "var origSend=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.send=function(){this.addEventListener('load',function(){var m=parseSkyResp(this.responseText);if(m)window.__skyMsg=m;});return origSend.apply(this,arguments);};" +
+                        "var attempts=0,timer=setInterval(function(){" +
+                        "  attempts++;var inp=document.querySelector('input[type=\"tel\"],input[type=\"text\"],input[type=\"number\"],input:not([type=\"hidden\"])');" +
                         "  if(inp){" +
-                        "    clearInterval(timer);" +
-                        "    var initialLines=(document.body.innerText||'').split('\\n').map(function(x){return x.trim();}).filter(Boolean);" +
-                        "    inp.focus();" +
-                        "    var setter=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;" +
-                        "    setter.call(inp,'" + phone + "');" +
-                        "    inp.dispatchEvent(new Event('input',{bubbles:true}));" +
-                        "    inp.dispatchEvent(new Event('change',{bubbles:true}));" +
+                        "    clearInterval(timer);var initialLines=(document.body.innerText||'').split('\\n').map(function(x){return x.trim();}).filter(Boolean);" +
+                        "    inp.focus();Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set.call(inp,'" + phone + "');" +
+                        "    inp.dispatchEvent(new Event('input',{bubbles:true}));inp.dispatchEvent(new Event('change',{bubbles:true}));" +
                         "    setTimeout(function(){" +
-                        "      var btn=document.querySelector('button[type=\"submit\"],input[type=\"submit\"],button');" +
-                        "      if(btn)btn.click();" +
-                        "      var checkCount=0;" +
-                        "      var msgTimer=setInterval(function(){" +
-                        "        checkCount++;" +
-                        "        if(window.__skyMsg&&!isWaitOrStatic(window.__skyMsg)){" +
-                        "          clearInterval(msgTimer);window.SkyBridge.onSkyResult(window.__skyMsg);return;" +
-                        "        }" +
+                        "      var btn=document.querySelector('button[type=\"submit\"],input[type=\"submit\"],button');if(btn)btn.click();" +
+                        "      var checkCount=0,msgTimer=setInterval(function(){" +
+                        "        checkCount++;if(window.__skyMsg&&!isWaitOrStatic(window.__skyMsg)){clearInterval(msgTimer);window.SkyBridge.onSkyResult(window.__skyMsg);return;}" +
                         "        var els=document.querySelectorAll('.swal2-html-container,.swal2-title,.swal2-content,.alert,[role=\"alert\"],.toast-message,.toast-body,.text-success,.text-danger,.text-warning,.text-info,#result,.result,#message,.message');" +
-                        "        for(var i=0;i<els.length;i++){" +
-                        "          var elLines=(els[i].innerText||'').split('\\n').map(function(x){return x.trim();}).filter(function(x){return x.length>2&&!isWaitOrStatic(x);});" +
-                        "          if(elLines.length>0){" +
-                        "            clearInterval(msgTimer);window.SkyBridge.onSkyResult(elLines[elLines.length-1]);return;" +
-                        "          }" +
-                        "        }" +
-                        "        var lines=(document.body.innerText||'').split('\\n').map(function(x){return x.trim();}).filter(function(x){" +
-                        "          return x.length>3&&initialLines.indexOf(x)===-1&&!isWaitOrStatic(x);" +
-                        "        });" +
-                        "        if(lines.length>0){" +
-                        "          clearInterval(msgTimer);window.SkyBridge.onSkyResult(lines[lines.length-1]);return;" +
-                        "        }" +
-                        "        if(checkCount>420){" +
-                        "          clearInterval(msgTimer);window.SkyBridge.onSkyResult('تم تحديث الرقم بنجاح');" +
-                        "        }" +
+                        "        for(var i=0;i<els.length;i++){var elLines=(els[i].innerText||'').split('\\n').map(function(x){return x.trim();}).filter(function(x){return x.length>2&&!isWaitOrStatic(x);});if(elLines.length>0){clearInterval(msgTimer);window.SkyBridge.onSkyResult(elLines[elLines.length-1]);return;}}" +
+                        "        var lines=(document.body.innerText||'').split('\\n').map(function(x){return x.trim();}).filter(function(x){return x.length>3&&initialLines.indexOf(x)===-1&&!isWaitOrStatic(x);});" +
+                        "        if(lines.length>0){clearInterval(msgTimer);window.SkyBridge.onSkyResult(lines[lines.length-1]);return;}" +
+                        "        if(checkCount>420){clearInterval(msgTimer);window.SkyBridge.onSkyResult('تم تحديث الرقم بنجاح');}" +
                         "      },500);" +
                         "    },500);" +
                         "  }" +
@@ -329,18 +232,12 @@ public class MainActivity extends Activity {
                     view.evaluateJavascript(js, null);
                 }
             });
-
             skyWebView.loadUrl(SKY_URL);
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 if (!completed[0]) {
                     completed[0] = true;
-                    String fallbackMsg = "تم تحديث الرقم بنجاح";
-                    if (sender != null && !sender.trim().isEmpty()) {
-                        sendSmsDirect(ctx, sender, fallbackMsg);
-                    }
-                    if (instance != null) {
-                        instance.updateUiMessage("success", fallbackMsg);
-                    }
+                    if (sender != null && !sender.trim().isEmpty()) sendSmsDirect(ctx, sender, "تم تحديث الرقم بنجاح");
+                    if (instance != null) instance.updateUiMessage("success", "تم تحديث الرقم بنجاح");
                     finishCleanup.run();
                 }
             }, 220000);
@@ -350,18 +247,12 @@ public class MainActivity extends Activity {
     public static class WebAppInterface {
         private final Context ctx;
         public WebAppInterface(Context ctx) { this.ctx = ctx; }
-
         @JavascriptInterface
-        public void autoRefreshSky(final String phone, final String sender) {
-            runHeadlessSkyRefresh(ctx, phone, sender);
-        }
-
+        public void autoRefreshSky(final String phone, final String sender) { runHeadlessSkyRefresh(ctx, phone, sender); }
         @JavascriptInterface
         public void sendSmsReply(final String sender, final String message) {
             sendSmsDirect(ctx, sender, message);
-            if (instance != null) {
-                instance.updateUiMessage("success", message);
-            }
+            if (instance != null) instance.updateUiMessage("success", message);
         }
     }
 
@@ -376,11 +267,6 @@ public class MainActivity extends Activity {
         public void onCreate() {
             super.onCreate();
             startForegroundNotification();
-            initBackgroundWebView();
-        }
-
-        @SuppressLint("SetJavaScriptEnabled")
-        private void initBackgroundWebView() {
             new Handler(Looper.getMainLooper()).post(() -> {
                 bgWebView = new WebView(getApplicationContext());
                 configureWebView(bgWebView, getApplicationContext());
@@ -399,29 +285,15 @@ public class MainActivity extends Activity {
         private void startForegroundNotification() {
             try {
                 NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm != null) {
-                    NotificationChannel ch = new NotificationChannel(CHANNEL_ID, "BRAND SIM Auto Refresh", NotificationManager.IMPORTANCE_LOW);
-                    nm.createNotificationChannel(ch);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm != null) {
+                    nm.createNotificationChannel(new NotificationChannel(CHANNEL_ID, "BRAND SIM Auto Refresh", NotificationManager.IMPORTANCE_LOW));
                 }
                 Intent openIntent = new Intent(this, MainActivity.class);
-                int flags = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0;
-                PendingIntent pi = PendingIntent.getActivity(this, 0, openIntent, flags);
-
-                Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ?
-                    new Notification.Builder(this, CHANNEL_ID) : new Notification.Builder(this);
-                Notification notif = builder
-                    .setContentTitle("BRAND SIM")
-                    .setContentText("التحديث التلقائي للرسائل يعمل بالخلفية")
-                    .setSmallIcon(android.R.drawable.sym_action_chat)
-                    .setContentIntent(pi)
-                    .setOngoing(true)
-                    .build();
-
-                if (Build.VERSION.SDK_INT >= 34) {
-                    startForeground(1, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
-                } else {
-                    startForeground(1, notif);
-                }
+                PendingIntent pi = PendingIntent.getActivity(this, 0, openIntent, Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
+                Notification.Builder b = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? new Notification.Builder(this, CHANNEL_ID) : new Notification.Builder(this);
+                Notification notif = b.setContentTitle("BRAND SIM").setContentText("التحديث التلقائي للرسائل يعمل بالخلفية").setSmallIcon(android.R.drawable.sym_action_chat).setContentIntent(pi).setOngoing(true).build();
+                if (Build.VERSION.SDK_INT >= 34) startForeground(1, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+                else startForeground(1, notif);
             } catch (Exception e) {}
         }
 
@@ -432,9 +304,8 @@ public class MainActivity extends Activity {
                 acquireTempWakeLock();
                 String phone = intent.getStringExtra("sms_target_phone");
                 String sender = intent.getStringExtra("sms_sender");
-                synchronized (queue) {
-                    queue.add(new String[]{phone, sender != null ? sender : ""});
-                }
+                String mode = intent.getStringExtra("sms_mode");
+                synchronized (queue) { queue.add(new String[]{phone != null ? phone : "", sender != null ? sender : "", mode != null ? mode : "refresh"}); }
                 drainQueue();
             }
             return START_STICKY;
@@ -443,7 +314,7 @@ public class MainActivity extends Activity {
         @Override
         public void onTaskRemoved(Intent rootIntent) {
             scheduleServiceRestart(getApplicationContext());
-            startBackgroundRefreshService(getApplicationContext(), null, null);
+            startBackgroundRefreshService(getApplicationContext(), null, null, null);
             super.onTaskRemoved(rootIntent);
         }
 
@@ -465,14 +336,15 @@ public class MainActivity extends Activity {
 
         private void drainQueue() {
             new Handler(Looper.getMainLooper()).post(() -> {
-                if (!isBgLoaded || bgWebView == null) return;
+                 if (!isBgLoaded || bgWebView == null) return;
                 synchronized (queue) {
                     while (!queue.isEmpty()) {
                         String[] item = queue.poll();
                         if (item != null) {
-                            String phone = item[0];
+                            String phone = item[0].replace("'", "");
                             String sender = item[1].replace("'", "");
-                            bgWebView.evaluateJavascript("javascript:if(window.executeSmsAutoRefresh){window.executeSmsAutoRefresh('" + phone + "','" + sender + "');}", null);
+                            String mode = item[2].replace("'", "");
+                            bgWebView.evaluateJavascript("javascript:if(window.executeSmsAutoRefresh){window.executeSmsAutoRefresh('" + phone + "','" + sender + "','" + mode + "');}", null);
                         }
                     }
                 }
@@ -484,21 +356,18 @@ public class MainActivity extends Activity {
     }
 
     public static class SmsReceiver extends BroadcastReceiver {
-        private static String lastProcessedPhone = "";
+        private static String lastProcessedKey = "";
         private static long lastProcessedTime = 0;
 
         @Override
         public void onReceive(Context context, Intent intent) {
             if (intent == null) return;
             String action = intent.getAction();
-            if (Intent.ACTION_BOOT_COMPLETED.equals(action) ||
-                Intent.ACTION_MY_PACKAGE_REPLACED.equals(action) ||
-                "com.brandsim.refresh.RESTART_SERVICE".equals(action)) {
-                startBackgroundRefreshService(context, null, null);
+            if (Intent.ACTION_BOOT_COMPLETED.equals(action) || Intent.ACTION_MY_PACKAGE_REPLACED.equals(action) || "com.brandsim.refresh.RESTART_SERVICE".equals(action)) {
+                startBackgroundRefreshService(context, null, null, null);
                 return;
             }
             if (!"android.provider.Telephony.SMS_RECEIVED".equals(action)) return;
-
             Bundle bundle = intent.getExtras();
             if (bundle == null) return;
             Object[] pdus = (Object[]) bundle.get("pdus");
@@ -508,33 +377,35 @@ public class MainActivity extends Activity {
             StringBuilder fullMsg = new StringBuilder();
             String sender = "";
             for (Object pdu : pdus) {
-                SmsMessage sms = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
-                    SmsMessage.createFromPdu((byte[]) pdu, format) :
-                    SmsMessage.createFromPdu((byte[]) pdu);
+                SmsMessage sms = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? SmsMessage.createFromPdu((byte[]) pdu, format) : SmsMessage.createFromPdu((byte[]) pdu);
                 if (sms != null) {
                     if (sender.isEmpty() && sms.getOriginatingAddress() != null) sender = sms.getOriginatingAddress();
                     if (sms.getMessageBody() != null) fullMsg.append(sms.getMessageBody());
                 }
             }
+            String body = fullMsg.toString();
+            if (isIgnoredSystemSms(body)) return;
 
-            String extractedPhone = extractCleanPhone(fullMsg.toString());
+            boolean isDetails = isDetailsRequestSms(body);
+            String extractedPhone = extractCleanPhone(body, isDetails);
+            if (extractedPhone == null && isDetails && sender != null && !sender.isEmpty()) {
+                extractedPhone = "";
+            }
             if (extractedPhone != null) {
+                String mode = isDetails ? "details" : "refresh";
+                String dedupKey = mode + ":" + extractedPhone + ":" + sender;
                 long now = SystemClock.elapsedRealtime();
-                if (extractedPhone.equals(lastProcessedPhone) && (now - lastProcessedTime) < 15000) return;
-                lastProcessedPhone = extractedPhone;
+                if (dedupKey.equals(lastProcessedKey) && (now - lastProcessedTime) < 12000) return;
+                lastProcessedKey = dedupKey;
                 lastProcessedTime = now;
-                startBackgroundRefreshService(context, extractedPhone, sender);
+                startBackgroundRefreshService(context, extractedPhone, sender, mode);
             }
         }
     }
 
     @Override
     public void onBackPressed() {
-        if (mainWebView != null && mainWebView.canGoBack()) {
-            mainWebView.goBack();
-        } else {
-            moveTaskToBack(true);
-        }
+        if (mainWebView != null && mainWebView.canGoBack()) mainWebView.goBack();
+        else moveTaskToBack(true);
     }
-                                                     }
-                                                                                
+}
