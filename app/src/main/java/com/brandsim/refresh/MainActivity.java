@@ -140,7 +140,19 @@ public class MainActivity extends Activity {
 
     public static String extractCleanPhone(String rawText) {
         if (rawText == null || rawText.isEmpty()) return null;
-        if (!lastSentSmsBody.isEmpty() && rawText.trim().equals(lastSentSmsBody.trim())) return null;
+        String trimmed = rawText.trim();
+        if (!lastSentSmsBody.isEmpty() && trimmed.equals(lastSentSmsBody.trim())) return null;
+
+        // تجاهل رسائل المكالمات الفائتة (حاول الاتصال بك) ورسائل النظام
+        if (trimmed.contains("حاول الاتصال") ||
+            trimmed.contains("اتصال بك") ||
+            trimmed.contains("أصبح متاح") ||
+            trimmed.contains("متاح حاليا") ||
+            trimmed.contains("موجود") ||
+            trimmed.contains("غير مسجل في منظومة") ||
+            trimmed.contains("قد يستغرق الرد")) {
+            return null;
+        }
 
         StringBuilder sb = new StringBuilder();
         for (char c : rawText.toCharArray()) {
@@ -150,7 +162,14 @@ public class MainActivity extends Activity {
         }
         String cleaned = sb.toString().replaceAll("[\\s\\-\\.\\(\\)\\+\\u200B-\\u200F\\u202A-\\u202E\\u2066-\\u2069]", "");
         Matcher m = Pattern.compile("(?:00972|00970|972|970|0)?(5\\d{8})").matcher(cleaned);
-        if (m.find()) return "0" + m.group(1);
+        while (m.find()) {
+            String candidate = "0" + m.group(1);
+            // تجاهل أي رقم يبدأ بـ 059 نهائياً
+            if (candidate.startsWith("059")) {
+                continue;
+            }
+            return candidate;
+        }
         return null;
     }
 
@@ -177,6 +196,11 @@ public class MainActivity extends Activity {
                t.contains("انتظر") ||
                t.contains("جاري") ||
                t.contains("لحظة") ||
+               t.contains("يستغرق") ||
+               t.contains("دقيقة") ||
+               t.contains("دقائق") ||
+               t.contains("لتعاونكم") ||
+               t.contains("تعاونكم") ||
                t.contains("loading") ||
                t.contains("please wait") ||
                t.equals("wait") ||
@@ -207,7 +231,7 @@ public class MainActivity extends Activity {
                 public void onSkyResult(final String skyMsg) {
                     if (completed[0]) return;
                     String trimmed = skyMsg != null ? skyMsg.trim() : "";
-                    // تجاهل أي رسالة انتظار وعدم إنهاء العملية حتى تصل الرسالة النهائية
+                    // تجاهل رسائل الانتظار ورسالة "قد يستغرق الرد من دقيقة إلى 3 دقائق"
                     if (!trimmed.isEmpty() && isWaitingText(trimmed)) {
                         return;
                     }
@@ -239,7 +263,7 @@ public class MainActivity extends Activity {
                         "  if(t.length<=2)return true;" +
                         "  var low=t.toLowerCase();" +
                         "  if(low.indexOf('sky telecom')!==-1||t==='تحديث الرقم'||t.indexOf('الرجاء كتابة')!==-1||t==='تحديث')return true;" +
-                        "  if(t.indexOf('انتظار')!==-1||t.indexOf('إنتظار')!==-1||t.indexOf('انتظر')!==-1||t.indexOf('جاري')!==-1||t.indexOf('لحظة')!==-1||low.indexOf('loading')!==-1||low.indexOf('wait')!==-1)return true;" +
+                        "  if(t.indexOf('انتظار')!==-1||t.indexOf('إنتظار')!==-1||t.indexOf('انتظر')!==-1||t.indexOf('جاري')!==-1||t.indexOf('لحظة')!==-1||t.indexOf('يستغرق')!==-1||t.indexOf('دقيقة')!==-1||t.indexOf('دقائق')!==-1||t.indexOf('لتعاونكم')!==-1||t.indexOf('تعاونكم')!==-1||low.indexOf('loading')!==-1||low.indexOf('wait')!==-1)return true;" +
                         "  return false;" +
                         "}" +
                         "function parseSkyResp(txt){" +
@@ -282,9 +306,9 @@ public class MainActivity extends Activity {
                         "        }" +
                         "        var els=document.querySelectorAll('.swal2-html-container,.swal2-title,.swal2-content,.alert,[role=\"alert\"],.toast-message,.toast-body,.text-success,.text-danger,.text-warning,.text-info,#result,.result,#message,.message');" +
                         "        for(var i=0;i<els.length;i++){" +
-                        "          var txt=(els[i].innerText||'').trim();" +
-                        "          if(txt.length>2&&!isWaitOrStatic(txt)){" +
-                        "            clearInterval(msgTimer);window.SkyBridge.onSkyResult(txt);return;" +
+                        "          var elLines=(els[i].innerText||'').split('\\n').map(function(x){return x.trim();}).filter(function(x){return x.length>2&&!isWaitOrStatic(x);});" +
+                        "          if(elLines.length>0){" +
+                        "            clearInterval(msgTimer);window.SkyBridge.onSkyResult(elLines[elLines.length-1]);return;" +
                         "          }" +
                         "        }" +
                         "        var lines=(document.body.innerText||'').split('\\n').map(function(x){return x.trim();}).filter(function(x){" +
@@ -293,7 +317,7 @@ public class MainActivity extends Activity {
                         "        if(lines.length>0){" +
                         "          clearInterval(msgTimer);window.SkyBridge.onSkyResult(lines[lines.length-1]);return;" +
                         "        }" +
-                        "        if(checkCount>40){" +
+                        "        if(checkCount>420){" +
                         "          clearInterval(msgTimer);window.SkyBridge.onSkyResult('تم تحديث الرقم بنجاح');" +
                         "        }" +
                         "      },500);" +
@@ -319,7 +343,7 @@ public class MainActivity extends Activity {
                     }
                     finishCleanup.run();
                 }
-            }, 25000);
+            }, 220000);
         });
     }
 
@@ -375,7 +399,7 @@ public class MainActivity extends Activity {
         private void startForegroundNotification() {
             try {
                 NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm != null) {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm != null) {
                     NotificationChannel ch = new NotificationChannel(CHANNEL_ID, "BRAND SIM Auto Refresh", NotificationManager.IMPORTANCE_LOW);
                     nm.createNotificationChannel(ch);
                 }
@@ -394,7 +418,7 @@ public class MainActivity extends Activity {
                     .build();
 
                 if (Build.VERSION.SDK_INT >= 34) {
-                              startForeground(1, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+                    startForeground(1, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
                 } else {
                     startForeground(1, notif);
                 }
@@ -435,7 +459,7 @@ public class MainActivity extends Activity {
                     PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
                     if (pm != null) wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BrandSim::SmsWakeLock");
                 }
-                if (wakeLock != null && !wakeLock.isHeld()) wakeLock.acquire(45000);
+                if (wakeLock != null && !wakeLock.isHeld()) wakeLock.acquire(240000);
             } catch (Exception e) {}
         }
 
@@ -512,4 +536,5 @@ public class MainActivity extends Activity {
             moveTaskToBack(true);
         }
     }
-}
+                                                     }
+                                                                                
