@@ -26,9 +26,11 @@ body[lang="he"]{font-family:'Rubik',sans-serif}
 .btn-submit{width:100%;padding:15px;font-size:17px;font-weight:700;font-family:inherit;color:#fff;background:linear-gradient(135deg,#2563eb 0%,#1d4ed8 100%);border:none;border-radius:14px;cursor:pointer;transition:all 0.2s ease;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:0 6px 16px rgba(37,99,235,0.3)}
 .btn-submit:hover{opacity:0.95;transform:translateY(-1px)}
 .btn-submit:disabled{background:#94a3b8;cursor:not-allowed;transform:none;box-shadow:none}
+.btn-details{width:100%;margin-top:10px;padding:13px;font-size:15px;font-weight:700;font-family:inherit;color:var(--primary);background:#f1f5f9;border:2px solid #cbd5e1;border-radius:14px;cursor:pointer;transition:all 0.2s ease;display:flex;align-items:center;justify-content:center;gap:8px}
+.btn-details:hover{background:#e2e8f0;border-color:#94a3b8}
 .spinner{display:none}
 .btn-submit.loading .spinner{display:inline-block}
-.alert-box{margin-top:20px;padding:14px 16px;border-radius:12px;font-size:14px;font-weight:700;display:none;align-items:center;justify-content:center;gap:10px;line-height:1.6;word-break:break-word}
+.alert-box{margin-top:20px;padding:14px 16px;border-radius:12px;font-size:14px;font-weight:700;display:none;align-items:center;justify-content:center;gap:10px;line-height:1.7;word-break:break-word;white-space:pre-line}
 .alert-box.success{display:flex;background-color:#dcfce7;color:#166534;border:1px solid #86efac}
 .alert-box.warning{display:flex;background-color:#fffbeb;color:#92400e;border:1px solid #fde68a}
 .alert-box.error{display:flex;background-color:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
@@ -42,13 +44,14 @@ body[lang="he"]{font-family:'Rubik',sans-serif}
 <div class="card">
 <div class="logo-wrapper"><div class="logo-icon"><i class="fas fa-sim-card"></i></div><div class="logo-text">BRAND <span>SIM</span></div></div>
 <h2 class="welcome-title" id="ui-welcome">مرحباً بك في براند سيم</h2>
-<p class="subtitle" id="ui-subtitle">أدخل رقم الهاتف أو الصق نص الرسالة لإجراء تحديث فوري</p>
+<p class="subtitle" id="ui-subtitle">أدخل رقم الهاتف أو الصق نص الرسالة لإجراء تحديث فوري أو معرفة تاريخ انتهاء الحزمة</p>
 <form id="customer-refresh-number-form" novalidate>
 <div class="form-group">
 <label for="customerPhone" id="ui-label">رقم الهاتف</label>
 <input type="tel" id="customerPhone" class="form-control" placeholder="05XXXXXXXX" inputmode="numeric" autocomplete="tel" required>
 </div>
 <button type="submit" id="customSubmitBtn" class="btn-submit"><span id="ui-btn">تحديث الرقم الآن</span><i class="fas fa-sync-alt fa-spin spinner"></i></button>
+<button type="button" id="detailsBtn" class="btn-details"><i class="fas fa-calendar-alt"></i><span id="ui-details-btn">تفاصيل الرقم وتاريخ انتهاء الحزمة</span></button>
 </form>
 <div id="alertBox" class="alert-box"></div>
 <div class="footer-bar"><span class="lang-btn" id="langToggleBtn" onclick="toggleLanguage()">עברית</span><span class="copyright">BRAND SIM © <script>document.write(new Date().getFullYear())</script></span></div>
@@ -61,10 +64,11 @@ const SKY_PORTAL_URL="https://rn.sky-5g.net";
 const LOCAL_PHP_PROXY="https://brand-sim.com/proxy.php";
 const GITHUB_RAW_DB="https://raw.githubusercontent.com/groupahmed2020-byte/BrandSim.com/main/customers.json";
 const i18n={
-ar:{welcome:"مرحباً بك في براند سيم",subtitle:"أدخل رقم الهاتف أو الصق نص الرسالة لإجراء تحديث فوري",label:"رقم الهاتف",placeholder:"05XXXXXXXX",btn:"تحديث الرقم الآن",loading:"جاري الفحص والتحديث...",switchBtn:"עברית",invalidPhone:"يرجى إدخال رقم هاتف صحيح مكون من 10 أرقام ويبدأ بـ 05",notAuthorized:"عذراً، هذا الرقم غير مسجل في منظومة براند سيم (BRAND SIM) ولا يمكن تحديثه.",defaultSuccess:"تم إرسال طلب تحديث وتنشيط الرقم بنجاح!",defaultError:"تعذر تحديث الرقم حالياً، يرجى التأكد من الرقم أو المحاولة لاحقاً."},
-he:{welcome:"ברוך הבא ל-BRAND SIM",subtitle:"נא להזין מספר טלפון כדי לבצע רענון והפעלה לכרטיס ה-SIM",label:"מספר טלפון",placeholder:"05XXXXXXXX",btn:"רענון מספר כעת",loading:"בודק ומרענן...",switchBtn:"العربية",invalidPhone:"נא להזין מספר טלפון תקין בן 10 ספרות המתחיל ב-05",notAuthorized:"מספר זה אינו רשום במערכת BRAND SIM ולא ניתן לרענן אותו.",defaultSuccess:"המספר רוענן בהצלחה!",defaultError:"פעולת הרענון נכשלה, בדוק את המספר או נסה שוב."}
+ar:{welcome:"مرحباً بك في براند سيم",subtitle:"أدخل رقم الهاتف أو الصق نص الرسالة لإجراء تحديث فوري أو معرفة تاريخ انتهاء الحزمة",label:"رقم الهاتف",placeholder:"05XXXXXXXX",btn:"تحديث الرقم الآن",detailsBtn:"تفاصيل الرقم وتاريخ انتهاء الحزمة",loading:"جاري الفحص...",switchBtn:"עברית",invalidPhone:"يرجى إدخال رقم هاتف صحيح مكون من 10 أرقام ويبدأ بـ 05",notAuthorized:"عذراً، هذا الرقم غير مسجل في منظومة براند سيم (BRAND SIM) ولا يمكن تحديثه.",defaultSuccess:"تم إرسال طلب تحديث وتنشيط الرقم بنجاح!",defaultError:"تعذر تحديث الرقم حالياً، يرجى التأكد من الرقم أو المحاولة لاحقاً."},
+he:{welcome:"ברוך הבא ל-BRAND SIM",subtitle:"נא להזין מספר טלפון לביצוע רענון או בדיקת תאריך תפוגת חבילה",label:"מספר טלפון",placeholder:"05XXXXXXXX",btn:"רענון מספר כעת",detailsBtn:"פרטי מספר ותאריך תפוגת חבילה",loading:"בודק...",switchBtn:"العربية",invalidPhone:"נא להזין מספר טלפון תקין בן 10 ספרות המתחיל ב-05",notAuthorized:"מספר זה אינו רשום במערכת BRAND SIM.",defaultSuccess:"המספר רוענן בהצלחה!",defaultError:"פעולת הרענון נכשלה, בדוק את המספר או נסה שוב."}
 };
 let currentLang=localStorage.getItem("language")||"ar";
+let pastedDetailsIntent=false;
 function applyLanguage(lang){
 currentLang=lang==="he"?"he":"ar";
 localStorage.setItem("language",currentLang);
@@ -75,9 +79,14 @@ document.getElementById("ui-subtitle").textContent=t.subtitle;
 document.getElementById("ui-label").textContent=t.label;
 document.getElementById("customerPhone").placeholder=t.placeholder;
 document.getElementById("ui-btn").textContent=t.btn;
+document.getElementById("ui-details-btn").textContent=t.detailsBtn;
 document.getElementById("langToggleBtn").textContent=t.switchBtn;
 }
 function toggleLanguage(){document.getElementById("alertBox").style.display="none";applyLanguage(currentLang==="ar"?"he":"ar");}
+function hasDetailsKeyword(txt){
+if(!txt)return false;
+return /(تفاصيل|تفصيل|تاريخ|انتهاء|إنتهاء|تنتهي|ينتهي|بتنتهي|بنتهي|حزمة|حزمه|باقة|باقه|متى|موعد|استعلام|إستعلام|صلاحية|صلاحيه|اشتراك|إشتراك|بيانات|معلومات)/.test(String(txt));
+}
 function normalizePhoneNumber(rawInput){
 if(!rawInput)return "";
 let str=rawInput.toString().replace(/[٠-٩]/g,d=>"٠١٢٣٤٥٦٧٨٩".indexOf(d)).replace(/[۰-۹]/g,d=>"۰۱۲۳۴۵۶۷۸۹".indexOf(d));
@@ -92,8 +101,12 @@ else if(str.length===9&&str.startsWith("5"))str="0"+str;
 else if(str.length>10&&str.startsWith("05"))str=str.slice(0,10);
 return str;
 }
-const form=document.getElementById("customer-refresh-number-form"),phoneInput=document.getElementById("customerPhone"),submitBtn=document.getElementById("customSubmitBtn"),btnText=document.getElementById("ui-btn"),alertBox=document.getElementById("alertBox");
-phoneInput.addEventListener("input",e=>{const normalized=normalizePhoneNumber(e.target.value);if(e.target.value!==normalized)e.target.value=normalized;});
+const form=document.getElementById("customer-refresh-number-form"),phoneInput=document.getElementById("customerPhone"),submitBtn=document.getElementById("customSubmitBtn"),detailsBtn=document.getElementById("detailsBtn"),btnText=document.getElementById("ui-btn"),alertBox=document.getElementById("alertBox");
+phoneInput.addEventListener("input",e=>{
+if(hasDetailsKeyword(e.target.value))pastedDetailsIntent=true;
+const normalized=normalizePhoneNumber(e.target.value);
+if(e.target.value!==normalized)e.target.value=normalized;
+});
 function showMessage(type,text){
 alertBox.className="alert-box "+type;
 const icon=type==="success"?"fa-check-circle":(type==="warning"?"fa-exclamation-triangle":"fa-times-circle");
@@ -101,14 +114,76 @@ alertBox.innerHTML='<i class="fas '+icon+'"></i> <span>'+text+'</span>';
 alertBox.style.display="flex";
 }
 window.showMessage=showMessage;
-async function findCustomerInSmsDb(cleanPhone){
+async function findCustomerInSmsDb(cleanPhone,senderPhone=""){
 let dbList=[];
-try{const localData=JSON.parse(localStorage.getItem("xone1_customers_db")||"[]");if(Array.isArray(localData))dbList=dbList.concat(localData);}catch(e){}
 try{
 const res=await fetch(GITHUB_RAW_DB+"?t="+Date.now(),{cache:"no-store"});
 if(res.ok){const remoteData=await res.json();if(Array.isArray(remoteData)&&remoteData.length)dbList=dbList.concat(remoteData);}
 }catch(e){}
-return dbList.find(c=>normalizePhoneNumber(c.simPhone||"")===cleanPhone||normalizePhoneNumber(c.contactPhone||"")===cleanPhone)||null;
+try{const localData=JSON.parse(localStorage.getItem("xone1_customers_db")||"[]");if(Array.isArray(localData))dbList=dbList.concat(localData);}catch(e){}
+const normTarget=normalizePhoneNumber(cleanPhone);
+const normSender=normalizePhoneNumber(senderPhone);
+let found=null;
+if(normTarget){
+found=dbList.find(c=>normalizePhoneNumber(c.simPhone||c.phone||c.number||c.mobile||"")===normTarget||normalizePhoneNumber(c.contactPhone||"")===normTarget);
+}
+if(!found&&normSender){
+found=dbList.find(c=>normalizePhoneNumber(c.simPhone||c.phone||c.number||c.mobile||"")===normSender||normalizePhoneNumber(c.contactPhone||"")===normSender);
+}
+return found||null;
+}
+function getProviderLabel(customer){
+const p=String(customer.sourceProvider||customer.provider||customer.company||"").trim().toLowerCase();
+if(p.includes("سكاي")||p.includes("sky"))return "سكاي (Sky)";
+if(p.includes("ارين")||p.includes("أرين")||p.includes("areen"))return "أرين (Areen)";
+if(p.includes("كويك")||p.includes("quick"))return "كويك لاين (QuickLine)";
+if(p.includes("ليان")||p.includes("layan"))return "ليان (Layan)";
+return customer.sourceProvider||customer.provider||"براند سيم";
+}
+function extractExpiryDate(customer){
+if(!customer||typeof customer!=="object")return "";
+const directKeys=["expiryDate","endDate","expireDate","expDate","expirationDate","packageExpiry","packageEnd","subscriptionEnd","renewalDate","validUntil","validTo","end_date","expiry_date","expire_date","dueDate","finishDate","end","expiry","date","تاريخ الانتهاء","تاريخ_الانتهاء","انتهاء الحزمة","انتهاء_الحزمة","تاريخ انتهاء الحزمة","انتهاء"];
+for(const k of directKeys){
+if(customer[k]!==undefined&&customer[k]!==null&&String(customer[k]).trim()!==""){
+return String(customer[k]).trim().split("T")[0];
+}
+}
+for(const [k,v] of Object.entries(customer)){
+if(v===null||v===undefined)continue;
+const keyLow=k.toLowerCase();
+if(/(exp|end|valid|renew|unti|date|تاريخ|انتهاء|إنتهاء|صلاحية|حزمة|باقة)/.test(keyLow)&&!/^(created|added|updated)/.test(keyLow)){
+const valStr=String(v).trim();
+if(valStr)return valStr.split("T")[0];
+}
+}
+const dateRegex=/(\d{4}[-\/]\d{1,2}[-\/]\d{1,2}|\d{1,2}[-\/]\d{1,2}[-\/]\d{4})/;
+for(const [k,v] of Object.entries(customer)){
+if(["id","simPhone","contactPhone","createdAt","addedAt","updatedAt"].includes(k))continue;
+const m=String(v||"").match(dateRegex);
+if(m)return m[1];
+}
+return "";
+}
+function extractPackageName(customer){
+const pkgKeys=["package","packageName","plan","planName","bundle","offer","الحزمة","الباقة","حزمة","باقة"];
+for(const k of pkgKeys){
+if(customer[k]&&String(customer[k]).trim()!=="")return String(customer[k]).trim();
+}
+return "";
+}
+function buildDetailsMessage(customer,fallbackPhone){
+const sim=normalizePhoneNumber(customer.simPhone||customer.phone||customer.number||fallbackPhone||"");
+const expiry=extractExpiryDate(customer);
+const pkg=extractPackageName(customer);
+let lines=[];
+lines.push("تفاصيل الرقم: "+sim);
+if(pkg)lines.push("الحزمة: "+pkg);
+if(expiry){
+lines.push("تاريخ انتهاء الحزمة: "+expiry);
+}else{
+lines.push("تاريخ انتهاء الحزمة: غير متوفر حالياً في السحبة");
+}
+return lines.join("\n");
 }
 async function refreshViaSky(phone,senderPhone){
 if(window.AndroidBridge&&window.AndroidBridge.autoRefreshSky){
@@ -154,13 +229,14 @@ let responseText=await response.text();
 try{const json=JSON.parse(responseText);if(typeof json==="string")responseText=json;else if(json&&(json.message||json.title||json.error))responseText=json.message||json.title||json.error;}catch(_){responseText=responseText.replace(/^"|"$/g,"").trim();}
 return{ok:response.ok,msg:responseText};
 }
-async function executeRefresh(rawNumber,senderPhone=""){
+async function executeRefresh(rawNumber,senderPhone="",mode="refresh"){
 const t=i18n[currentLang],cleanNumber=normalizePhoneNumber(rawNumber);
-phoneInput.value=cleanNumber;
-if(!/^05\d{8}$/.test(cleanNumber)){showMessage("warning",t.invalidPhone);return;}
-submitBtn.disabled=true;submitBtn.classList.add("loading");btnText.textContent=t.loading;alertBox.style.display="none";
+if(cleanNumber)phoneInput.value=cleanNumber;
+if(mode!=="details"&&!/^05\d{8}$/.test(cleanNumber)){showMessage("warning",t.invalidPhone);return;}
+if(mode==="details"&&!cleanNumber&&!senderPhone){showMessage("warning",t.invalidPhone);return;}
+submitBtn.disabled=true;detailsBtn.disabled=true;submitBtn.classList.add("loading");btnText.textContent=t.loading;alertBox.style.display="none";
 try{
-const customer=await findCustomerInSmsDb(cleanNumber);
+const customer=await findCustomerInSmsDb(cleanNumber,senderPhone);
 if(!customer){
 showMessage("error",t.notAuthorized);
 if(senderPhone&&window.AndroidBridge&&window.AndroidBridge.sendSmsReply){
@@ -168,12 +244,21 @@ window.AndroidBridge.sendSmsReply(senderPhone,t.notAuthorized);
 }
 return;
 }
+if(mode==="details"){
+const detailsMsg=buildDetailsMessage(customer,cleanNumber);
+showMessage("success",detailsMsg);
+if(senderPhone&&window.AndroidBridge&&window.AndroidBridge.sendSmsReply){
+window.AndroidBridge.sendSmsReply(senderPhone,detailsMsg);
+}
+return;
+}
+const targetSim=normalizePhoneNumber(customer.simPhone||customer.phone||customer.number||cleanNumber);
 const provider=String(customer.sourceProvider||"").trim().toLowerCase();
 let result;
-if(provider.includes("سكاي")||provider.includes("sky"))result=await refreshViaSky(cleanNumber,senderPhone);
-else if(provider.includes("ارين")||provider.includes("أرين")||provider.includes("areen"))result=await refreshViaAreen(cleanNumber);
-else if(provider.includes("كويك")||provider.includes("quick"))result=await refreshViaQuickLine(cleanNumber);
-else result=await refreshViaLayan(cleanNumber);
+if(provider.includes("سكاي")||provider.includes("sky"))result=await refreshViaSky(targetSim,senderPhone);
+else if(provider.includes("ارين")||provider.includes("أرين")||provider.includes("areen"))result=await refreshViaAreen(targetSim);
+else if(provider.includes("كويك")||provider.includes("quick"))result=await refreshViaQuickLine(targetSim);
+else result=await refreshViaLayan(targetSim);
 const finalSiteMsg=(result.msg||"").trim()||(result.ok?t.defaultSuccess:t.defaultError);
 if(result.ok){
 showMessage("success",finalSiteMsg);
@@ -189,18 +274,27 @@ showMessage("error",t.defaultError);
 if(senderPhone&&window.AndroidBridge&&window.AndroidBridge.sendSmsReply){
 window.AndroidBridge.sendSmsReply(senderPhone,t.defaultError);
 }
+}finally{
+pastedDetailsIntent=false;
+submitBtn.disabled=false;detailsBtn.disabled=false;submitBtn.classList.remove("loading");btnText.textContent=t.btn;
 }
-finally{submitBtn.disabled=false;submitBtn.classList.remove("loading");btnText.textContent=t.btn;}
 }
-window.executeSmsAutoRefresh=function(targetPhone,senderPhone){
-executeRefresh(targetPhone,senderPhone);
+window.executeSmsAutoRefresh=function(targetPhone,senderPhone,mode){
+executeRefresh(targetPhone,senderPhone,mode||"refresh");
 };
-form.addEventListener("submit",e=>{e.preventDefault();executeRefresh(phoneInput.value);});
+form.addEventListener("submit",e=>{
+e.preventDefault();
+executeRefresh(phoneInput.value,"",pastedDetailsIntent?"details":"refresh");
+});
+detailsBtn.addEventListener("click",()=>{
+executeRefresh(phoneInput.value,"","details");
+});
 window.addEventListener("DOMContentLoaded",()=>{
 const params=new URLSearchParams(window.location.search);
 applyLanguage(params.get("lang")||currentLang);
 const urlNumber=params.get("number")||params.get("phone");
-if(urlNumber){phoneInput.value=normalizePhoneNumber(urlNumber);if(params.get("auto")==="1"||params.get("auto")==="true")executeRefresh(urlNumber);}
+const modeParam=params.get("mode")==="details"?"details":"refresh";
+if(urlNumber){phoneInput.value=normalizePhoneNumber(urlNumber);if(params.get("auto")==="1"||params.get("auto")==="true")executeRefresh(urlNumber,"",modeParam);}
 });
 </script>
 </body>
