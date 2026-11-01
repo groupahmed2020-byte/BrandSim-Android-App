@@ -42,11 +42,11 @@ body[lang="he"]{font-family:'Rubik',sans-serif}
 <div class="card">
 <div class="logo-wrapper"><div class="logo-icon"><i class="fas fa-sim-card"></i></div><div class="logo-text">BRAND <span>SIM</span></div></div>
 <h2 class="welcome-title" id="ui-welcome">مرحباً بك في براند سيم</h2>
-<p class="subtitle" id="ui-subtitle">أدخل رقم الهاتف لإجراء تحديث وتنشيط فوري للشريحة</p>
+<p class="subtitle" id="ui-subtitle">أدخل رقم الهاتف أو الصق نص الرسالة لإجراء تحديث فوري</p>
 <form id="customer-refresh-number-form" novalidate>
 <div class="form-group">
 <label for="customerPhone" id="ui-label">رقم الهاتف</label>
-<input type="tel" id="customerPhone" class="form-control" placeholder="05XXXXXXXX" maxlength="10" inputmode="numeric" autocomplete="tel" required>
+<input type="tel" id="customerPhone" class="form-control" placeholder="05XXXXXXXX" inputmode="numeric" autocomplete="tel" required>
 </div>
 <button type="submit" id="customSubmitBtn" class="btn-submit"><span id="ui-btn">تحديث الرقم الآن</span><i class="fas fa-sync-alt fa-spin spinner"></i></button>
 </form>
@@ -61,7 +61,7 @@ const SKY_PORTAL_URL="https://rn.sky-5g.net";
 const LOCAL_PHP_PROXY="https://brand-sim.com/proxy.php";
 const GITHUB_RAW_DB="https://raw.githubusercontent.com/groupahmed2020-byte/BrandSim.com/main/customers.json";
 const i18n={
-ar:{welcome:"مرحباً بك في براند سيم",subtitle:"أدخل رقم الهاتف لإجراء تحديث وتنشيط فوري للشريحة",label:"رقم الهاتف",placeholder:"05XXXXXXXX",btn:"تحديث الرقم الآن",loading:"جاري الفحص والتحديث...",switchBtn:"עברית",invalidPhone:"يرجى إدخال رقم هاتف صحيح مكون من 10 أرقام ويبدأ بـ 05",notAuthorized:"عذراً، هذا الرقم غير مسجل في منظومة براند سيم (BRAND SIM) ولا يمكن تحديثه.",defaultSuccess:"✅ تم إرسال طلب تحديث وتنشيط الرقم بنجاح!",defaultError:"⚠️ تعذر تحديث الرقم حالياً، يرجى التأكد من الرقم أو المحاولة لاحقاً."},
+ar:{welcome:"مرحباً بك في براند سيم",subtitle:"أدخل رقم الهاتف أو الصق نص الرسالة لإجراء تحديث فوري",label:"رقم الهاتف",placeholder:"05XXXXXXXX",btn:"تحديث الرقم الآن",loading:"جاري الفحص والتحديث...",switchBtn:"עברית",invalidPhone:"يرجى إدخال رقم هاتف صحيح مكون من 10 أرقام ويبدأ بـ 05",notAuthorized:"عذراً، هذا الرقم غير مسجل في منظومة براند سيم (BRAND SIM) ولا يمكن تحديثه.",defaultSuccess:"✅ تم إرسال طلب تحديث وتنشيط الرقم بنجاح!",defaultError:"⚠️ تعذر تحديث الرقم حالياً، يرجى التأكد من الرقم أو المحاولة لاحقاً."},
 he:{welcome:"ברוך הבא ל-BRAND SIM",subtitle:"נא להזין מספר טלפון כדי לבצע רענון והפעלה לכרטיס ה-SIM",label:"מספר טלפון",placeholder:"05XXXXXXXX",btn:"רענון מספר כעת",loading:"בודק ומרענן...",switchBtn:"العربية",invalidPhone:"נא להזין מספר טלפון תקין בן 10 ספרות המתחיל ב-05",notAuthorized:"מספר זה אינו רשום במערכת BRAND SIM ולא ניתן לרענן אותו.",defaultSuccess:"✅ המספר רוענן בהצלחה!",defaultError:"⚠️ פעולת הרענון נכשלה, בדוק את המספר או נסה שוב."}
 };
 let currentLang=localStorage.getItem("language")||"ar";
@@ -78,17 +78,23 @@ document.getElementById("ui-btn").textContent=t.btn;
 document.getElementById("langToggleBtn").textContent=t.switchBtn;
 }
 function toggleLanguage(){document.getElementById("alertBox").style.display="none";applyLanguage(currentLang==="ar"?"he":"ar");}
+
+// فلتر ذكي يسحب الرقم فقط ويتجاهل النصوص و +972 والشحطات
 function normalizePhoneNumber(rawInput){
 if(!rawInput)return "";
 let str=rawInput.toString().replace(/[٠-٩]/g,d=>"٠١٢٣٤٥٦٧٨٩".indexOf(d)).replace(/[۰-۹]/g,d=>"۰۱۲۳۴۵۶۷۸۹".indexOf(d));
 if(str.includes("_"))str=str.split("_")[0];
-str=str.replace(/[^0-9]/g,"");
+let cleaned=str.replace(/[\s\-\.\(\)\+\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g,"");
+let match=cleaned.match(/(?:00972|00970|972|970|0)?(5\d{8})/);
+if(match)return "0"+match[1];
+str=cleaned.replace(/[^0-9]/g,"");
 if(str.startsWith("00972")||str.startsWith("00970"))str="0"+str.slice(5);
 else if((str.startsWith("972")||str.startsWith("970"))&&str.length>=11)str="0"+str.slice(3);
 else if(str.length===9&&str.startsWith("5"))str="0"+str;
 else if(str.length>10&&str.startsWith("05"))str=str.slice(0,10);
 return str;
 }
+
 const form=document.getElementById("customer-refresh-number-form"),phoneInput=document.getElementById("customerPhone"),submitBtn=document.getElementById("customSubmitBtn"),btnText=document.getElementById("ui-btn"),alertBox=document.getElementById("alertBox");
 phoneInput.addEventListener("input",e=>{const normalized=normalizePhoneNumber(e.target.value);if(e.target.value!==normalized)e.target.value=normalized;});
 function showMessage(type,text){
@@ -106,10 +112,10 @@ if(res.ok){const remoteData=await res.json();if(Array.isArray(remoteData)&&remot
 }catch(e){}
 return dbList.find(c=>normalizePhoneNumber(c.simPhone||"")===cleanPhone||normalizePhoneNumber(c.contactPhone||"")===cleanPhone)||null;
 }
-async function refreshViaSky(phone){
+async function refreshViaSky(phone,senderPhone){
 if(window.AndroidBridge&&window.AndroidBridge.autoRefreshSky){
-window.AndroidBridge.autoRefreshSky(phone);
-return{ok:true,msg:"⚡ جاري فتح بوابة سكاي ولصق الرقم وتحديثه تلقائياً..."};
+window.AndroidBridge.autoRefreshSky(phone,senderPhone||"");
+return{ok:true,isSkyApp:true,msg:"⚡ جاري فتح بوابة سكاي ولصق الرقم وتحديثه تلقائياً..."};
 }
 try{await navigator.clipboard.writeText(phone);}catch(e){}
 const win=window.open(SKY_PORTAL_URL,"_blank");
@@ -150,7 +156,7 @@ let responseText=await response.text();
 try{const json=JSON.parse(responseText);if(typeof json==="string")responseText=json;else if(json&&(json.message||json.title||json.error))responseText=json.message||json.title||json.error;}catch(_){responseText=responseText.replace(/^"|"$/g,"").trim();}
 return{ok:response.ok,msg:responseText};
 }
-async function executeRefresh(rawNumber){
+async function executeRefresh(rawNumber,senderPhone=""){
 const t=i18n[currentLang],cleanNumber=normalizePhoneNumber(rawNumber);
 phoneInput.value=cleanNumber;
 if(!/^05\d{8}$/.test(cleanNumber)){showMessage("warning",t.invalidPhone);return;}
@@ -160,15 +166,23 @@ const customer=await findCustomerInSmsDb(cleanNumber);
 if(!customer){showMessage("error",t.notAuthorized);return;}
 const provider=String(customer.sourceProvider||"").trim().toLowerCase();
 let result;
-if(provider.includes("سكاي")||provider.includes("sky"))result=await refreshViaSky(cleanNumber);
+if(provider.includes("سكاي")||provider.includes("sky"))result=await refreshViaSky(cleanNumber,senderPhone);
 else if(provider.includes("ارين")||provider.includes("أرين")||provider.includes("areen"))result=await refreshViaAreen(cleanNumber);
 else if(provider.includes("كويك")||provider.includes("quick"))result=await refreshViaQuickLine(cleanNumber);
 else result=await refreshViaLayan(cleanNumber);
-if(result.ok){showMessage("success",result.msg||t.defaultSuccess);phoneInput.value="";}
-else showMessage("warning",result.msg||t.defaultError);
+if(result.ok){
+showMessage("success",result.msg||t.defaultSuccess);
+phoneInput.value="";
+if(senderPhone&&!result.isSkyApp&&window.AndroidBridge&&window.AndroidBridge.sendSmsReply){
+window.AndroidBridge.sendSmsReply(senderPhone,"✅ تم تحديث وتنشيط الرقم "+cleanNumber+" بنجاح - BRAND SIM");
+}
+}else showMessage("warning",result.msg||t.defaultError);
 }catch(err){showMessage("error",t.defaultError);}
 finally{submitBtn.disabled=false;submitBtn.classList.remove("loading");btnText.textContent=t.btn;}
 }
+window.executeSmsAutoRefresh=function(targetPhone,senderPhone){
+executeRefresh(targetPhone,senderPhone);
+};
 form.addEventListener("submit",e=>{e.preventDefault();executeRefresh(phoneInput.value);});
 window.addEventListener("DOMContentLoaded",()=>{
 const params=new URLSearchParams(window.location.search);
@@ -178,5 +192,4 @@ if(urlNumber){phoneInput.value=normalizePhoneNumber(urlNumber);if(params.get("au
 });
 </script>
 </body>
-  </html>
-  
+</html>
