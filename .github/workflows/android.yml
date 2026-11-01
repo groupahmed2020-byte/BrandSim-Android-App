@@ -1,0 +1,60 @@
+name: Build BRAND SIM APK
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Generate Gradle Configs
+        run: |
+          cat << 'EOF' > settings.gradle
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }
+          rootProject.name = "BrandSim"
+          include ':app'
+          EOF
+          cat << 'EOF' > app/build.gradle
+          plugins { id 'com.android.application' version '8.2.0' }
+          android {
+              namespace 'com.brandsim.refresh'
+              compileSdk 34
+              defaultConfig {
+                  applicationId "com.brandsim.refresh"
+                  minSdk 23
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_1_8
+                  targetCompatibility JavaVersion.VERSION_1_8
+              }
+          }
+          EOF
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.5'
+
+      - name: Build Debug APK
+        run: gradle assembleDebug
+
+      - name: Upload BRAND SIM APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: BRAND-SIM-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+          
