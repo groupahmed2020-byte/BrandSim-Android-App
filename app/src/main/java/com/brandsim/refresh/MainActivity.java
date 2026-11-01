@@ -2,6 +2,7 @@ package com.brandsim.refresh;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -60,6 +61,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         if (instance == this) instance = null;
+        scheduleServiceRestart(getApplicationContext());
         super.onDestroy();
     }
 
@@ -87,15 +89,30 @@ public class MainActivity extends Activity {
 
     public static void startBackgroundRefreshService(Context context, String phone, String sender) {
         try {
-            Intent srv = new Intent(context, RefreshService.class);
+            Intent srv = new Intent(context.getApplicationContext(), RefreshService.class);
             if (phone != null) {
                 srv.putExtra("sms_target_phone", phone);
                 srv.putExtra("sms_sender", sender != null ? sender : "");
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(srv);
+                context.getApplicationContext().startForegroundService(srv);
             } else {
-                context.startService(srv);
+                context.getApplicationContext().startService(srv);
+            }
+        } catch (Exception e) {}
+    }
+
+    // إعادة تشغيل الخدمة تلقائياً خلال ثانية واحدة إذا تم سحب التطبيق من المهام
+    public static void scheduleServiceRestart(Context context) {
+        try {
+            Intent restartIntent = new Intent(context.getApplicationContext(), SmsReceiver.class);
+            restartIntent.setAction("com.brandsim.refresh.RESTART_SERVICE");
+            int flags = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
+                PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE : PendingIntent.FLAG_ONE_SHOT;
+            PendingIntent pi = PendingIntent.getBroadcast(context.getApplicationContext(), 777, restartIntent, flags);
+            AlarmManager am = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+            if (am != null) {
+                am.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + 800, pi);
             }
         } catch (Exception e) {}
     }
@@ -345,6 +362,20 @@ public class MainActivity extends Activity {
             return START_STICKY;
         }
 
+        // عند سحب التطبيق لإغلاقه من المهام يعيد تشغيل نفسه فوراً
+        @Override
+        public void onTaskRemoved(Intent rootIntent) {
+            scheduleServiceRestart(getApplicationContext());
+            startBackgroundRefreshService(getApplicationContext(), null, null);
+            super.onTaskRemoved(rootIntent);
+        }
+
+        @Override
+        public void onDestroy() {
+            scheduleServiceRestart(getApplicationContext());
+            super.onDestroy();
+        }
+
         private void acquireTempWakeLock() {
             try {
                 if (wakeLock == null) {
@@ -371,55 +402,12 @@ public class MainActivity extends Activity {
             });
         }
 
-        @Override
-        public IBinder onBind(Intent intent) { return null; }
-    }
-
-    public static class SmsReceiver extends BroadcastReceiver {
-        private static String lastProcessedPhone = "";
-        private static long lastProcessedTime = 0;
-
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            if (intent == null) return;
-            if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
-                startBackgroundRefreshService(context, null, null);
-                return;
-            }
-            if (!"android.provider.Telephony.SMS_RECEIVED".equals(intent.getAction())) return;
-
-            Bundle bundle = intent.getExtras();
-            if (bundle == null) return;
-            Object[] pdus = (Object[]) bundle.get("pdus");
-            String format = bundle.getString("format");
-            if (pdus == null || pdus.length == 0) return;
-
-            StringBuilder fullMsg = new StringBuilder();
-            String sender = "";
-            for (Object pdu : pdus) {
-                SmsMessage sms = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ?
-                    SmsMessage.createFromPdu((byte[]) pdu, format) :
-                    SmsMessage.createFromPdu((byte[]) pdu);
-                if (sms != null) {
-                    if (sender.isEmpty() && sms.getOriginatingAddress() != null) sender = sms.getOriginatingAddress();
-                    if (sms.getMessageBody() != null) fullMsg.append(sms.getMessageBody());
-                }
-            }
-
-            String extractedPhone = extractCleanPhone(fullMsg.toString());
-            if (extractedPhone != null) {
-                long now = SystemClock.elapsedRealtime();
-                            if (extractedPhone.equals(lastProcessedPhone) && (now - lastProcessedTime) < 15000) return;
-                lastProcessedPhone = extractedPhone;
-                lastProcessedTime = now;
-                startBackgroundRefreshService(context, extractedPhone, sender);
-            }
-        }
-    }
-
-    @Override
+         @Override
     public void onBackPressed() {
-        if (mainWebView != null && mainWebView.canGoBack()) mainWebView.goBack();
-        else super.onBackPressed();
+        if (mainWebView != null && mainWebView.canGoBack()) {
+            mainWebView.goBack();
+        } else {
+            moveTaskToBack(true);
+        }
     }
 }
