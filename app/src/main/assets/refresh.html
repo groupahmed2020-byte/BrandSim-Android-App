@@ -62,6 +62,7 @@ const AREEN_GAS_URL="https://script.google.com/macros/s/AKfycbxidpoKH8PnhxSvKggQ
 const QUICKLINE_GAS_URL="https://script.google.com/macros/s/AKfycbzoFY7vXfDNsMBieM33Ohym4o3oif6_hoc1FI0RFzKbEgvfALOVMBWQKNt14VOakcQg/exec";
 const SKY_PORTAL_URL="https://rn.sky-5g.net";
 const LOCAL_PHP_PROXY="https://brand-sim.com/proxy.php";
+const NETLIFY_QUERY_URL="https://incredible-crumble-58566c.netlify.app/.netlify/functions/query";
 const GITHUB_RAW_DB="https://raw.githubusercontent.com/groupahmed2020-byte/BrandSim.com/main/customers.json";
 const i18n={
 ar:{welcome:"مرحباً بك في براند سيم",subtitle:"أدخل رقم الهاتف أو الصق نص الرسالة لإجراء تحديث فوري أو معرفة تاريخ انتهاء الحزمة",label:"رقم الهاتف",placeholder:"05XXXXXXXX",btn:"تحديث الرقم الآن",detailsBtn:"تفاصيل الرقم وتاريخ انتهاء الحزمة",loading:"جاري الفحص...",switchBtn:"עברית",invalidPhone:"يرجى إدخال رقم هاتف صحيح مكون من 10 أرقام ويبدأ بـ 05",notAuthorized:"عذراً، هذا الرقم غير مسجل في منظومة براند سيم (BRAND SIM) ولا يمكن تحديثه.",defaultSuccess:"تم إرسال طلب تحديث وتنشيط الرقم بنجاح!",defaultError:"تعذر تحديث الرقم حالياً، يرجى التأكد من الرقم أو المحاولة لاحقاً."},
@@ -114,15 +115,38 @@ alertBox.innerHTML='<i class="fas '+icon+'"></i> <span>'+text+'</span>';
 alertBox.style.display="flex";
 }
 window.showMessage=showMessage;
+
+async function queryNetlifyBackend(phone){
+if(!phone)return null;
+try{
+const res=await fetch(NETLIFY_QUERY_URL,{
+method:"POST",
+headers:{"Content-Type":"application/json"},
+body:JSON.stringify({phone:phone})
+});
+const json=await res.json();
+if(res.ok&&json.ok&&json.data)return json.data;
+}catch(e){}
+return null;
+}
+
 async function findCustomerInSmsDb(cleanPhone,senderPhone=""){
+const normTarget=normalizePhoneNumber(cleanPhone);
+const normSender=normalizePhoneNumber(senderPhone);
+if(normTarget){
+const fromApi=await queryNetlifyBackend(normTarget);
+if(fromApi)return fromApi;
+}
+if(normSender&&normSender!==normTarget){
+const fromSenderApi=await queryNetlifyBackend(normSender);
+if(fromSenderApi)return fromSenderApi;
+}
 let dbList=[];
 try{
 const res=await fetch(GITHUB_RAW_DB+"?t="+Date.now(),{cache:"no-store"});
 if(res.ok){const remoteData=await res.json();if(Array.isArray(remoteData)&&remoteData.length)dbList=dbList.concat(remoteData);}
 }catch(e){}
 try{const localData=JSON.parse(localStorage.getItem("xone1_customers_db")||"[]");if(Array.isArray(localData))dbList=dbList.concat(localData);}catch(e){}
-const normTarget=normalizePhoneNumber(cleanPhone);
-const normSender=normalizePhoneNumber(senderPhone);
 let found=null;
 if(normTarget){
 found=dbList.find(c=>normalizePhoneNumber(c.simPhone||c.phone||c.number||c.mobile||"")===normTarget||normalizePhoneNumber(c.contactPhone||"")===normTarget);
@@ -132,6 +156,7 @@ found=dbList.find(c=>normalizePhoneNumber(c.simPhone||c.phone||c.number||c.mobil
 }
 return found||null;
 }
+
 function getProviderLabel(customer){
 const p=String(customer.sourceProvider||customer.provider||customer.company||"").trim().toLowerCase();
 if(p.includes("سكاي")||p.includes("sky"))return "سكاي (Sky)";
@@ -165,7 +190,7 @@ if(m)return m[1];
 return "";
 }
 function extractPackageName(customer){
-const pkgKeys=["package","packageName","plan","planName","bundle","offer","الحزمة","الباقة","حزمة","باقة"];
+const pkgKeys=["packageInfo","package","packageName","plan","planName","bundle","offer","الحزمة","الباقة","حزمة","باقة"];
 for(const k of pkgKeys){
 if(customer[k]&&String(customer[k]).trim()!=="")return String(customer[k]).trim();
 }
