@@ -7,11 +7,14 @@ import android.content.pm.*;
 import android.net.Uri;
 import android.os.*;
 import android.provider.Settings;
+import android.service.notification.NotificationListenerService;
+import android.service.notification.StatusBarNotification;
 import android.telephony.*;
 import android.view.Window;
 import android.webkit.*;
 import android.widget.Toast;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.*;
 
 public class MainActivity extends Activity {
@@ -19,6 +22,18 @@ public class MainActivity extends Activity {
     public static MainActivity instance;
     public static String lastSentSmsBody = "";
     private static final String SKY_URL = "https://rn.sky-5g.net";
+
+    // خريطة لحفظ جلسات الرد التلقائي الخاصة بالواتساب
+    public static final Map<String, WhatsAppReplyAction> waReplyMap = new ConcurrentHashMap<>();
+
+    public static class WhatsAppReplyAction {
+        public final PendingIntent pendingIntent;
+        public final RemoteInput[] remoteInputs;
+        public WhatsAppReplyAction(PendingIntent pi, RemoteInput[] ri) {
+            this.pendingIntent = pi;
+            this.remoteInputs = ri;
+        }
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -87,6 +102,12 @@ public class MainActivity extends Activity {
         } catch (Exception e) {}
     }
 
+    private boolean isNotificationListenerEnabled() {
+        String pkgName = getPackageName();
+        final String flat = Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
+        return flat != null && flat.contains(pkgName);
+    }
+
     private void checkPermissionsAndBattery() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             ArrayList<String> perms = new ArrayList<>();
@@ -103,6 +124,14 @@ public class MainActivity extends Activity {
                     startActivity(intent);
                 }
             } catch (Exception e) {}
+
+            // طلب صلاحية قراءة إشعارات واتساب أعمال إذا لم تكن مفعلة
+            if (!isNotificationListenerEnabled()) {
+                try {
+                    Toast.makeText(this, "يرجى تفعيل صلاحية الوصول للإشعارات لتطبيق BRAND SIM ليعمل الرد التلقائي للواتساب", Toast.LENGTH_LONG).show();
+                    startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
+                } catch (Exception e) {}
+            }
         }
     }
 
@@ -112,7 +141,8 @@ public class MainActivity extends Activity {
         if (!lastSentSmsBody.isEmpty() && t.equals(lastSentSmsBody.trim())) return true;
         return t.contains("حاول الاتصال") || t.contains("اتصال بك") || t.contains("أصبح متاح") ||
                t.contains("متاح حاليا") || t.contains("موجود") || t.contains("غير مسجل في منظومة") ||
-               t.contains("قد يستغرق الرد") || t.contains("تاريخ انتهاء الحزمة:");
+               t.contains("قد يستغرق الرد") || t.contains("تاريخ انتهاء الحزمة:") ||
+               t.contains("رسائل جديدة") || t.contains("new messages") || t.contains("جاري فحص");
     }
 
     public static boolean isDetailsRequestSms(String rawText) {
@@ -138,15 +168,34 @@ public class MainActivity extends Activity {
         return null;
     }
 
+    // إرسال الرد (سواء كان عبر واتساب أعمال أو SMS)
     public static void sendSmsDirect(final Context ctx, final String sender, final String message) {
         if (sender == null || sender.trim().isEmpty() || message == null || message.trim().isEmpty()) return;
         String cleanReply = message.trim();
         lastSentSmsBody = cleanReply;
+
+        // إذا كان المرسل من الواتساب، يتم الرد عبر إشعار الواتساب مباشرة
+        WhatsAppReplyAction waAction = waReplyMap.get(sender);
+        if (waAction != null) {
+            try {
+                Intent localIntent = new Intent();
+                Bundle localBundle = new Bundle();
+                for (RemoteInput remoteIn : waAction.remoteInputs) {
+                    localBundle.putCharSequence(remoteIn.getResultKey(), cleanReply);
+                }
+                RemoteInput.addResultsToIntent(waAction.remoteInputs, localIntent, localBundle);
+                waAction.pendingIntent.send(ctx, 0, localIntent);
+                new Handler(Looper.getMainLooper()).post(() -> Toast.makeText(ctx, "تم الرد عبر واتساب بنجاح", Toast.LENGTH_SHORT).show());
+                return;
+            } catch (Exception e) {}
+        }
+
+        // إذا لم يكن واتساب، يتم الرد عبر SMS كالمعتاد
         try {
             SmsManager sms = SmsManager.getDefault();
             ArrayList<String> parts = sms.divideMessage(cleanReply);
             sms.sendMultipartTextMessage(sender, null, parts, null, null);
-            new Handler(Looper.getMainLooper()).post(() -> Toast.makeText(ctx, "تم إرسال رد للزبون: " + sender, Toast.LENGTH_SHORT).show());
+            new Handler(Looper.getMainLooper()).post(() -> Toast.makeText(ctx, "تم إرسال رد SMS للزبون: " + sender, Toast.LENGTH_SHORT).show());
         } catch (Exception e) {}
     }
 
@@ -289,9 +338,10 @@ public class MainActivity extends Activity {
                     nm.createNotificationChannel(new NotificationChannel(CHANNEL_ID, "BRAND SIM Auto Refresh", NotificationManager.IMPORTANCE_LOW));
                 }
                 Intent openIntent = new Intent(this, MainActivity.class);
+                                Intent openIntent = new Intent(this, MainActivity.class);
                 PendingIntent pi = PendingIntent.getActivity(this, 0, openIntent, Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
                 Notification.Builder b = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? new Notification.Builder(this, CHANNEL_ID) : new Notification.Builder(this);
-                Notification notif = b.setContentTitle("BRAND SIM").setContentText("التحديث التلقائي للرسائل يعمل بالخلفية").setSmallIcon(android.R.drawable.sym_action_chat).setContentIntent(pi).setOngoing(true).build();
+                Notification notif = b.setContentTitle("BRAND SIM").setContentText("التحديث التلقائي للواتساب والرسائل يعمل بالخلفية").setSmallIcon(android.R.drawable.sym_action_chat).setContentIntent(pi).setOngoing(true).build();
                 if (Build.VERSION.SDK_INT >= 34) startForeground(1, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
                 else startForeground(1, notif);
             } catch (Exception e) {}
@@ -336,7 +386,7 @@ public class MainActivity extends Activity {
 
         private void drainQueue() {
             new Handler(Looper.getMainLooper()).post(() -> {
-                 if (!isBgLoaded || bgWebView == null) return;
+                if (!isBgLoaded || bgWebView == null) return;
                 synchronized (queue) {
                     while (!queue.isEmpty()) {
                         String[] item = queue.poll();
@@ -353,6 +403,83 @@ public class MainActivity extends Activity {
 
         @Override
         public IBinder onBind(Intent intent) { return null; }
+    }
+
+    // خدمة الاستماع لرسائل واتساب أعمال (com.whatsapp.w4b) وواتساب العادي (com.whatsapp)
+    public static class WhatsAppListener extends NotificationListenerService {
+        private static String lastWaKey = "";
+        private static long lastWaTime = 0;
+
+        @Override
+        public void onNotificationPosted(StatusBarNotification sbn) {
+            if (sbn == null) return;
+            String pkg = sbn.getPackageName();
+            if (!"com.whatsapp.w4b".equals(pkg) && !"com.whatsapp".equals(pkg)) return;
+
+            Notification notif = sbn.getNotification();
+            if (notif == null || notif.extras == null) return;
+
+            // تجاهل الإشعارات المجمعة (Summary)
+            if ((notif.flags & Notification.FLAG_GROUP_SUMMARY) != 0) return;
+
+            CharSequence titleCs = notif.extras.getCharSequence(Notification.EXTRA_TITLE);
+            CharSequence textCs = notif.extras.getCharSequence(Notification.EXTRA_TEXT);
+            CharSequence bigTextCs = notif.extras.getCharSequence(Notification.EXTRA_BIG_TEXT);
+
+            String title = titleCs != null ? titleCs.toString().trim() : "";
+            String body = bigTextCs != null ? bigTextCs.toString().trim() : (textCs != null ? textCs.toString().trim() : "");
+
+            if (body.isEmpty() || isIgnoredSystemSms(body)) return;
+
+            // استخراج إجراء الرد المباشر (RemoteInput) من الإشعار
+            WhatsAppReplyAction replyAction = extractReplyAction(notif);
+            if (replyAction == null) return;
+
+            boolean isDetails = isDetailsRequestSms(body);
+            String extractedPhone = extractCleanPhone(body, isDetails);
+            String senderPhoneFromTitle = extractCleanPhone(title, true);
+
+            if (extractedPhone == null && isDetails && senderPhoneFromTitle != null) {
+                extractedPhone = "";
+            }
+
+            if (extractedPhone != null) {
+                String mode = isDetails ? "details" : "refresh";
+                String dedupKey = "WA:" + mode + ":" + extractedPhone + ":" + title + ":" + body;
+                long now = SystemClock.elapsedRealtime();
+                if (dedupKey.equals(lastWaKey) && (now - lastWaTime) < 12000) return;
+                lastWaKey = dedupKey;
+                lastWaTime = now;
+
+                String senderKey;
+                if (senderPhoneFromTitle != null) {
+                    senderKey = senderPhoneFromTitle + "_wa_" + Math.abs(title.hashCode());
+                } else {
+                    senderKey = "wa_" + Math.abs(title.hashCode());
+                }
+
+                waReplyMap.put(senderKey, replyAction);
+                cancelNotification(sbn.getKey()); // إخفاء الإشعار لتمييزه كمقروء
+                startBackgroundRefreshService(getApplicationContext(), extractedPhone, senderKey, mode);
+            }
+        }
+
+        private WhatsAppReplyAction extractReplyAction(Notification notif) {
+            if (notif.actions != null) {
+                for (Notification.Action action : notif.actions) {
+                    if (action != null && action.getRemoteInputs() != null && action.getRemoteInputs().length > 0 && action.actionIntent != null) {
+                        return new WhatsAppReplyAction(action.actionIntent, action.getRemoteInputs());
+                    }
+                }
+            }
+            Notification.WearableExtender wearable = new Notification.WearableExtender(notif);
+            for (Notification.Action action : wearable.getActions()) {
+                if (action != null && action.getRemoteInputs() != null && action.getRemoteInputs().length > 0 && action.actionIntent != null) {
+                    return new WhatsAppReplyAction(action.actionIntent, action.getRemoteInputs());
+                }
+            }
+            return null;
+        }
     }
 
     public static class SmsReceiver extends BroadcastReceiver {
