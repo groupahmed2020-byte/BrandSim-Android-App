@@ -47,8 +47,16 @@ public class MainActivity extends Activity {
         configureWebView(mainWebView, this);
         mainWebView.loadUrl("file:///android_asset/refresh.html");
 
-        checkPermissionsAndBattery();
+        startPermissionSetupFlow();
         startBackgroundRefreshService(this, null, null, null);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (hasRuntimePermissions() && !isNotificationListenerEnabled()) {
+            checkSpecialPermissions();
+        }
     }
 
     @Override
@@ -118,7 +126,19 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void checkPermissionsAndBattery() {
+    private boolean hasRuntimePermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (checkSelfPermission(Manifest.permission.RECEIVE_SMS) != PackageManager.PERMISSION_GRANTED) return false;
+            if (checkSelfPermission(Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) return false;
+            if (checkSelfPermission(Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) return false;
+            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void startPermissionSetupFlow() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             ArrayList<String> perms = new ArrayList<>();
             if (checkSelfPermission(Manifest.permission.RECEIVE_SMS) != PackageManager.PERMISSION_GRANTED) perms.add(Manifest.permission.RECEIVE_SMS);
@@ -129,21 +149,21 @@ public class MainActivity extends Activity {
             }
             if (!perms.isEmpty()) {
                 requestPermissions(perms.toArray(new String[0]), 101);
-            } else {
-                requestBatteryOptimizationIgnore();
+                return;
             }
         }
+        checkSpecialPermissions();
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == 101) {
-            requestBatteryOptimizationIgnore();
+            checkSpecialPermissions();
         }
     }
 
-    private void requestBatteryOptimizationIgnore() {
+    private void checkSpecialPermissions() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             try {
                 PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
@@ -151,9 +171,34 @@ public class MainActivity extends Activity {
                     Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
                     intent.setData(Uri.parse("package:" + getPackageName()));
                     startActivity(intent);
+                    return;
                 }
             } catch (Exception e) {}
         }
+
+        if (!isNotificationListenerEnabled()) {
+            promptForNotificationAccess();
+        }
+    }
+
+    private void promptForNotificationAccess() {
+        new AlertDialog.Builder(this)
+            .setTitle("تفعيل الرد التلقائي لواتساب")
+            .setMessage("يحتاج تطبيق BRAND SIM لإذن قراءة الإشعارات للرد التلقائي على طلبات التنشيط عبر واتساب.\n\nاضغط 'متابعة' ثم فعّل المفتاح بجانب BRAND SIM.")
+            .setPositiveButton("متابعة", (dialog, which) -> {
+                try {
+                    Intent intent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
+                    startActivity(intent);
+                } catch (Exception e) {
+                    try {
+                        Intent fallback = new Intent(Settings.ACTION_SETTINGS);
+                        startActivity(fallback);
+                    } catch (Exception ignored) {}
+                }
+            })
+            .setNegativeButton("لاحقاً", null)
+            .setCancelable(false)
+            .show();
     }
 
     public static boolean isIgnoredSystemSms(String rawText) {
@@ -316,7 +361,7 @@ public class MainActivity extends Activity {
         public WebAppInterface(Context ctx) { this.ctx = ctx; }
 
         @JavascriptInterface
-        public void autoRefreshSky(final String phone, final String sender) { runHeadlessSkyRefresh(ctx, phone, sender); }
+                public void autoRefreshSky(final String phone, final String sender) { runHeadlessSkyRefresh(ctx, phone, sender); }
 
         @JavascriptInterface
         public void sendSmsReply(final String sender, final String message) {
@@ -359,7 +404,7 @@ public class MainActivity extends Activity {
                     bgWebView = new WebView(getApplicationContext());
                     configureWebView(bgWebView, getApplicationContext());
                     bgWebView.setWebViewClient(new WebViewClient() {
-                                       @Override
+                        @Override
                         public void onPageFinished(WebView view, String url) {
                             super.onPageFinished(view, url);
                             isBgLoaded = true;
@@ -587,4 +632,5 @@ public class MainActivity extends Activity {
         if (mainWebView != null && mainWebView.canGoBack()) mainWebView.goBack();
         else moveTaskToBack(true);
     }
-}
+                                                              }
+                    
