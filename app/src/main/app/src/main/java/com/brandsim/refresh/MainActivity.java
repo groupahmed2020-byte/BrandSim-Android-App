@@ -1,4 +1,5 @@
 package com.brandsim.refresh;
+
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.*;
@@ -37,15 +38,17 @@ public class MainActivity extends Activity {
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        requestWindowFeature(Window.FEATURE_NO_TITLE);
         super.onCreate(savedInstanceState);
         instance = this;
-        requestWindowFeature(Window.FEATURE_NO_TITLE);
-        checkPermissionsAndBattery();
-        startBackgroundRefreshService(this, null, null, null);
+
         mainWebView = new WebView(this);
         setContentView(mainWebView);
         configureWebView(mainWebView, this);
         mainWebView.loadUrl("file:///android_asset/refresh.html");
+
+        checkPermissionsAndBattery();
+        startBackgroundRefreshService(this, null, null, null);
     }
 
     @Override
@@ -60,6 +63,7 @@ public class MainActivity extends Activity {
         WebSettings s = wv.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
+        s.setAllowFileAccess(true);
         s.setAllowFileAccessFromFileURLs(true);
         s.setAllowUniversalAccessFromFileURLs(true);
         s.setMediaPlaybackRequiresUserGesture(false);
@@ -71,8 +75,7 @@ public class MainActivity extends Activity {
     public void updateUiMessage(final String type, final String msg) {
         new Handler(Looper.getMainLooper()).post(() -> {
             if (mainWebView != null) {
-                String safeMsg = msg == null ? "" : msg.replace("\", "\\").replace("'", "\'").replace("
-", "\n");
+                String safeMsg = msg == null ? "" : msg.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n").replace("\r", "");
                 mainWebView.evaluateJavascript("javascript:if(window.showMessage){window.showMessage('" + type + "','" + safeMsg + "');}", null);
             }
         });
@@ -86,8 +89,11 @@ public class MainActivity extends Activity {
                 srv.putExtra("sms_sender", sender != null ? sender : "");
                 srv.putExtra("sms_mode", mode != null ? mode : "refresh");
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.getApplicationContext().startForegroundService(srv);
-            else context.getApplicationContext().startService(srv);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.getApplicationContext().startForegroundService(srv);
+            } else {
+                context.getApplicationContext().startService(srv);
+            }
         } catch (Exception e) {}
     }
 
@@ -118,8 +124,27 @@ public class MainActivity extends Activity {
             if (checkSelfPermission(Manifest.permission.RECEIVE_SMS) != PackageManager.PERMISSION_GRANTED) perms.add(Manifest.permission.RECEIVE_SMS);
             if (checkSelfPermission(Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) perms.add(Manifest.permission.READ_SMS);
             if (checkSelfPermission(Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) perms.add(Manifest.permission.SEND_SMS);
-            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) perms.add("android.permission.POST_NOTIFICATIONS");
-            if (!perms.isEmpty()) requestPermissions(perms.toArray(new String[0]), 101);
+            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
+                perms.add("android.permission.POST_NOTIFICATIONS");
+            }
+            if (!perms.isEmpty()) {
+                requestPermissions(perms.toArray(new String[0]), 101);
+            } else {
+                requestBatteryOptimizationIgnore();
+            }
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 101) {
+            requestBatteryOptimizationIgnore();
+        }
+    }
+
+    private void requestBatteryOptimizationIgnore() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             try {
                 PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
                 if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
@@ -154,8 +179,8 @@ public class MainActivity extends Activity {
             else if (c >= '۰' && c <= '۹') sb.append((char) ('0' + (c - '۰')));
             else sb.append(c);
         }
-        String cleaned = sb.toString().replaceAll("[\s\-\.\(\)\+\u200B-\u200F\u202A-\u202E\u2066-\u2069]", "");
-        Matcher m = Pattern.compile("(?:00972|00970|972|970|0)?(5\d{8})").matcher(cleaned);
+        String cleaned = sb.toString().replaceAll("[\\s\\-\\.\\(\\)\\+\\u200B-\\u200F\\u202A-\\u202E\\u2066-\\u2069]", "");
+        Matcher m = Pattern.compile("(?:00972|00970|972|970|0)?(5\\d{8})").matcher(cleaned);
         while (m.find()) {
             String candidate = "0" + m.group(1);
             if (candidate.startsWith("059") && !allow059ForDetails) continue;
@@ -251,18 +276,18 @@ public class MainActivity extends Activity {
                         "var origFetch=window.fetch;if(origFetch){window.fetch=function(){return origFetch.apply(this,arguments).then(function(r){r.clone().text().then(function(t){var m=parseSkyResp(t);if(m)window.__skyMsg=m;});return r;});};}" +
                         "var origSend=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.send=function(){this.addEventListener('load',function(){var m=parseSkyResp(this.responseText);if(m)window.__skyMsg=m;});return origSend.apply(this,arguments);};" +
                         "var attempts=0,timer=setInterval(function(){" +
-                        "  attempts++;var inp=document.querySelector('input[type=\'tel\'],input[type=\'text\'],input[type=\'number\'],input:not([type=\'hidden\'])');" +
+                        "  attempts++;var inp=document.querySelector('input[type=\\'tel\\'],input[type=\\'text\\'],input[type=\\'number\\'],input:not([type=\\'hidden\\'])');" +
                         "  if(inp){" +
-                        "    clearInterval(timer);var initialLines=(document.body.innerText||'').split('\n').map(function(x){return x.trim();}).filter(Boolean);" +
+                        "    clearInterval(timer);var initialLines=(document.body.innerText||'').split('\\n').map(function(x){return x.trim();}).filter(Boolean);" +
                         "    inp.focus();Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set.call(inp,'" + phone + "');" +
                         "    inp.dispatchEvent(new Event('input',{bubbles:true}));inp.dispatchEvent(new Event('change',{bubbles:true}));" +
                         "    setTimeout(function(){" +
-                        "      var btn=document.querySelector('button[type=\'submit\'],input[type=\'submit\'],button');if(btn)btn.click();" +
+                        "      var btn=document.querySelector('button[type=\\'submit\\'],input[type=\\'submit\\'],button');if(btn)btn.click();" +
                         "      var checkCount=0,msgTimer=setInterval(function(){" +
                         "        checkCount++;if(window.__skyMsg&&!isWaitOrStatic(window.__skyMsg)){clearInterval(msgTimer);window.SkyBridge.onSkyResult(window.__skyMsg);return;}" +
-                        "        var els=document.querySelectorAll('.swal2-html-container,.swal2-title,.swal2-content,.alert,[role=\'alert\'],.toast-message,.toast-body,.text-success,.text-danger,.text-warning,.text-info,#result,.result,#message,.message');" +
-                        "        for(var i=0;i<els.length;i++){var elLines=(els[i].innerText||'').split('\n').map(function(x){return x.trim();}).filter(function(x){return x.length>2&&!isWaitOrStatic(x);});if(elLines.length>0){clearInterval(msgTimer);window.SkyBridge.onSkyResult(elLines[elLines.length-1]);return;}}" +
-                        "        var lines=(document.body.innerText||'').split('\n').map(function(x){return x.trim();}).filter(function(x){return x.length>3&&initialLines.indexOf(x)===-1&&!isWaitOrStatic(x);});" +
+                        "        var els=document.querySelectorAll('.swal2-html-container,.swal2-title,.swal2-content,.alert,[role=\\'alert\\'],.toast-message,.toast-body,.text-success,.text-danger,.text-warning,.text-info,#result,.result,#message,.message');" +
+                        "        for(var i=0;i<els.length;i++){var elLines=(els[i].innerText||'').split('\\n').map(function(x){return x.trim();}).filter(function(x){return x.length>2&&!isWaitOrStatic(x);});if(elLines.length>0){clearInterval(msgTimer);window.SkyBridge.onSkyResult(elLines[elLines.length-1]);return;}}" +
+                        "        var lines=(document.body.innerText||'').split('\\n').map(function(x){return x.trim();}).filter(function(x){return x.length>3&&initialLines.indexOf(x)===-1&&!isWaitOrStatic(x);});" +
                         "        if(lines.length>0){clearInterval(msgTimer);window.SkyBridge.onSkyResult(lines[lines.length-1]);return;}" +
                         "        if(checkCount>420){clearInterval(msgTimer);window.SkyBridge.onSkyResult('تم تحديث الرقم بنجاح');}" +
                         "      },500);" +
@@ -289,10 +314,10 @@ public class MainActivity extends Activity {
     public static class WebAppInterface {
         private final Context ctx;
         public WebAppInterface(Context ctx) { this.ctx = ctx; }
-        
+
         @JavascriptInterface
         public void autoRefreshSky(final String phone, final String sender) { runHeadlessSkyRefresh(ctx, phone, sender); }
-        
+
         @JavascriptInterface
         public void sendSmsReply(final String sender, final String message) {
             sendSmsDirect(ctx, sender, message);
@@ -334,7 +359,7 @@ public class MainActivity extends Activity {
                     bgWebView = new WebView(getApplicationContext());
                     configureWebView(bgWebView, getApplicationContext());
                     bgWebView.setWebViewClient(new WebViewClient() {
-                        @Override
+                                       @Override
                         public void onPageFinished(WebView view, String url) {
                             super.onPageFinished(view, url);
                             isBgLoaded = true;
