@@ -39,6 +39,17 @@
             android:stopWithTask="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- خدمة التقاط والرد التلقائي على واتساب أعمال -->
+        <service
+            android:name=".MainActivity$WhatsAppListener"
+            android:label="BRAND SIM WhatsApp Auto-Reply"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
         <receiver
             android:name=".MainActivity$SmsReceiver"
             android:enabled="true"
@@ -52,3 +63,4 @@
         </receiver>
     </application>
 </manifest>
+                    
