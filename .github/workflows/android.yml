@@ -17,6 +17,30 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Organize Project Structure Automatically
+        run: |
+          mkdir -p app/src/main/java/com/brandsim/refresh
+          mkdir -p app/src/main/assets
+
+          MANIFEST_FILE=$(find . -name "AndroidManifest.xml" | head -n 1)
+          if [ -n "$MANIFEST_FILE" ] && [ "$MANIFEST_FILE" != "./app/src/main/AndroidManifest.xml" ]; then
+            cp "$MANIFEST_FILE" app/src/main/AndroidManifest.xml
+          fi
+
+          JAVA_FILE=$(find . -name "MainActivity.java" | head -n 1)
+          if [ -n "$JAVA_FILE" ] && [ "$JAVA_FILE" != "./app/src/main/java/com/brandsim/refresh/MainActivity.java" ]; then
+            cp "$JAVA_FILE" app/src/main/java/com/brandsim/refresh/MainActivity.java
+          fi
+
+          HTML_FILE=$(find . -name "refresh.html" | head -n 1)
+          if [ -n "$HTML_FILE" ] && [ "$HTML_FILE" != "./app/src/main/assets/refresh.html" ]; then
+            cp "$HTML_FILE" app/src/main/assets/refresh.html
+          fi
+
+          ls -la app/src/main/
+          ls -la app/src/main/java/com/brandsim/refresh/
+          ls -la app/src/main/assets/
+
       - name: Generate Gradle Configs
         run: |
           cat << 'EOF' > settings.gradle
