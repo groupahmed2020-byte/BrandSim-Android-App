@@ -78,7 +78,7 @@ let lastSkySentTime=0;
 
 const form=document.getElementById("customer-refresh-number-form"),phoneInput=document.getElementById("customerPhone"),submitBtn=document.getElementById("customSubmitBtn"),btnText=document.getElementById("ui-btn"),alertBox=document.getElementById("alertBox"),langBtn=document.getElementById("langToggleBtn");
 
-function cleanText(s){return String(s||"").replace(/[\u0000-\u001F\u007F-\u009F<>]/g,"").trim().slice(0,220);}
+function cleanText(s){return String(s||"").replace(/[ --<>]/g,"").trim().slice(0,220);}
 
 function applyLanguage(lang){
   currentLang=lang==="he"?"he":"ar";try{localStorage.setItem("language",currentLang);}catch(e){}
