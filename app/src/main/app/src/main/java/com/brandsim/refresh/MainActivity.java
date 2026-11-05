@@ -31,6 +31,7 @@ public class MainActivity extends Activity {
     public static MainActivity instance;
     public static String lastSentSmsBody = "";
     private static final String SKY_URL = "https://rn.sky-5g.net";
+    private static boolean webViewDataDirConfigured = false;
     public static final Map<String, WhatsAppReplyAction> waReplyMap = new ConcurrentHashMap<>();
 
     public static class WhatsAppReplyAction {
@@ -44,11 +45,25 @@ public class MainActivity extends Activity {
         }
     }
 
+    public static synchronized void ensureWebViewProcessDir(Context ctx) {
+        if (webViewDataDirConfigured) return;
+        webViewDataDirConfigured = true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            try {
+                String proc = Application.getProcessName();
+                if (proc != null && !proc.equals(ctx.getPackageName())) {
+                    WebView.setDataDirectorySuffix(proc.replace(":", "_").replace(".", "_"));
+                }
+            } catch (Exception e) {}
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         super.onCreate(savedInstanceState);
+        ensureWebViewProcessDir(this);
         instance = this;
         rootLayout = new FrameLayout(this);
         mainWebView = new WebView(this);
@@ -89,11 +104,10 @@ public class MainActivity extends Activity {
     }
 
     private void showChannelsConfigDialog() {
-        SharedPreferences prefs = getSharedPreferences("BrandSimConfig", Context.MODE_PRIVATE);
         final boolean[] checkedItems = new boolean[]{
-            prefs.getBoolean("enable_sms", true),
-            prefs.getBoolean("enable_whatsapp", true),
-            prefs.getBoolean("enable_telegram", true)
+            isChannelEnabled(this, "enable_sms"),
+            isChannelEnabled(this, "enable_whatsapp"),
+            isChannelEnabled(this, "enable_telegram")
         };
         String[] items = new String[]{
             "استقبال وتحديث رسائل SMS",
@@ -105,13 +119,10 @@ public class MainActivity extends Activity {
             .setTitle("إعدادات قنوات الاستقبال والصلاحيات")
             .setMultiChoiceItems(items, checkedItems, (dialog, which, isChecked) -> {
                 checkedItems[which] = isChecked;
-                SharedPreferences.Editor ed = prefs.edit();
-                ed.putBoolean("enable_sms", checkedItems[0]);
-                ed.putBoolean("enable_whatsapp", checkedItems[1]);
-                ed.putBoolean("enable_telegram", checkedItems[2]);
-                ed.apply();
+                saveAllChannelsState(this, checkedItems[0], checkedItems[1], checkedItems[2]);
             })
             .setPositiveButton("حفظ وإغلاق", (d, w) -> {
+                saveAllChannelsState(this, checkedItems[0], checkedItems[1], checkedItems[2]);
                 Toast.makeText(this, "تم حفظ إعدادات القنوات بنجاح", Toast.LENGTH_SHORT).show();
             })
             .setNeutralButton("الإعدادات المقيدة والإشعارات", (d, w) -> {
@@ -120,12 +131,36 @@ public class MainActivity extends Activity {
             .show();
     }
 
+    public static void saveAllChannelsState(Context ctx, boolean sms, boolean wa, boolean tg) {
+        try {
+            ctx.getSharedPreferences("BrandSimConfig", Context.MODE_PRIVATE).edit()
+                .putBoolean("enable_sms", sms)
+                .putBoolean("enable_whatsapp", wa)
+                .putBoolean("enable_telegram", tg)
+                .commit();
+            Intent sync = new Intent(ctx.getApplicationContext(), RefreshService.class);
+            sync.putExtra("sync_channels", true);
+            sync.putExtra("enable_sms", sms);
+            sync.putExtra("enable_whatsapp", wa);
+            sync.putExtra("enable_telegram", tg);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ctx.getApplicationContext().startForegroundService(sync);
+            else ctx.getApplicationContext().startService(sync);
+        } catch (Exception e) {}
+    }
+
+    public static boolean isChannelEnabled(Context ctx, String key) {
+        try {
+            return ctx.getSharedPreferences("BrandSimConfig", Context.MODE_PRIVATE).getBoolean(key, true);
+        } catch (Exception e) { return true; }
+    }
+
     private void showRestrictedSettingsGuideDialog() {
         new AlertDialog.Builder(this)
-            .setTitle("تفعيل الإعدادات المقيدة والإشعارات")
-            .setMessage("لتفعيل قراءة إشعارات (واتساب وتيليجرام) ورسائل SMS على الهواتف الحديثة:\n\n"
+            .setTitle("تفعيل الإعدادات المقيدة والعمل بالخلفية")
+            .setMessage("لضمان استمرار عمل التطبيق بالخلفية وتلقي إشعارات (واتساب وتيليجرام) ورسائل SMS حتى بعد إغلاقه من شاشة المهام:\n\n"
                 + "1️⃣ اضغط على (فتح معلومات التطبيق) ثم اضغط على النقاط الثلاث ⋮ في أعلى الزاوية واختر (السماح بالإعدادات المقيدة / Allow restricted settings).\n\n"
-                + "2️⃣ بعدها اضغط على (تفعيل وصول الإشعارات) وفعّل خيار BRAND SIM.")
+                + "2️⃣ من داخل معلومات التطبيق، ادخل إلى (البطارية / موفر البطارية) واختر (بلا قيود / لا توجد قيود).\n\n"
+                + "3️⃣ بعدها اضغط على (تفعيل وصول الإشعارات) وفعّل خيار BRAND SIM.")
             .setPositiveButton("1. فتح معلومات التطبيق", (d, w) -> {
                 openAppDetailsSettings();
             })
@@ -143,7 +178,7 @@ public class MainActivity extends Activity {
             intent.setData(Uri.fromParts("package", getPackageName(), null));
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(intent);
-            Toast.makeText(this, "اضغط على ⋮ في الأعلى ثم اختر: السماح بالإعدادات المقيدة", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "اضغط على ⋮ في الأعلى -> السماح بالإعدادات المقيدة، واجعل البطارية (بلا قيود)", Toast.LENGTH_LONG).show();
         } catch (Exception e) {
             try { startActivity(new Intent(Settings.ACTION_SETTINGS)); } catch (Exception ignored) {}
         }
@@ -173,13 +208,21 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         handleIncomingIntent(getIntent());
+        startBackgroundRefreshService(this, null, null, null);
         if (hasRuntimePermissions() && !isNotificationListenerEnabled(this)) checkSpecialPermissions();
         else ensureWaListenerAlive(this, false);
     }
 
     @Override
+    protected void onStop() {
+        startBackgroundRefreshService(getApplicationContext(), null, null, null);
+        super.onStop();
+    }
+
+    @Override
     protected void onDestroy() {
         if (instance == this) instance = null;
+        startBackgroundRefreshService(getApplicationContext(), null, null, null);
         scheduleServiceRestart(getApplicationContext());
         super.onDestroy();
     }
@@ -258,12 +301,20 @@ public class MainActivity extends Activity {
 
     public static void scheduleServiceRestart(Context context) {
         try {
-            Intent restartIntent = new Intent(context.getApplicationContext(), SmsReceiver.class);
+            Context appCtx = context.getApplicationContext();
+            Intent restartIntent = new Intent(appCtx, SmsReceiver.class);
             restartIntent.setAction("com.brandsim.refresh.RESTART_SERVICE");
-            int flags = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE : PendingIntent.FLAG_ONE_SHOT;
-            PendingIntent pi = PendingIntent.getBroadcast(context.getApplicationContext(), 777, restartIntent, flags);
-            AlarmManager am = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
-            if (am != null) am.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + 800, pi);
+            int flags = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE : PendingIntent.FLAG_UPDATE_CURRENT;
+            PendingIntent pi = PendingIntent.getBroadcast(appCtx, 777, restartIntent, flags);
+            AlarmManager am = (AlarmManager) appCtx.getSystemService(Context.ALARM_SERVICE);
+            if (am != null) {
+                long triggerAt = SystemClock.elapsedRealtime() + 1500;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi);
+                } else {
+                    am.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi);
+                }
+            }
         } catch (Exception e) {}
     }
 
@@ -464,6 +515,7 @@ public class MainActivity extends Activity {
     public static void runHeadlessSkyRefresh(final Context ctx, final String phone, final String sender) {
         if (phone == null || isIgnoredPrefixPhone(phone)) return;
         new Handler(Looper.getMainLooper()).post(() -> {
+            ensureWebViewProcessDir(ctx.getApplicationContext());
             Toast.makeText(ctx, "جاري تحديث سكاي بالخلفية: " + phone, Toast.LENGTH_SHORT).show();
             final WebView skyWebView = new WebView(ctx.getApplicationContext());
             skyWebView.layout(0, 0, 1080, 1920);
@@ -614,22 +666,18 @@ public class MainActivity extends Activity {
         }
         @JavascriptInterface
         public void setChannelsConfig(boolean enableSms, boolean enableWa) {
-            ctx.getSharedPreferences("BrandSimConfig", Context.MODE_PRIVATE).edit().putBoolean("enable_sms", enableSms).putBoolean("enable_whatsapp", enableWa).apply();
+            saveAllChannelsState(ctx, enableSms, enableWa, isChannelEnabled(ctx, "enable_telegram"));
         }
         @JavascriptInterface
         public void setAllChannelsConfig(boolean enableSms, boolean enableWa, boolean enableTg) {
-            ctx.getSharedPreferences("BrandSimConfig", Context.MODE_PRIVATE).edit()
-                .putBoolean("enable_sms", enableSms)
-                .putBoolean("enable_whatsapp", enableWa)
-                .putBoolean("enable_telegram", enableTg)
-                .apply();
+            saveAllChannelsState(ctx, enableSms, enableWa, enableTg);
         }
         @JavascriptInterface
-        public boolean isSmsChannelEnabled() { return ctx.getSharedPreferences("BrandSimConfig", Context.MODE_PRIVATE).getBoolean("enable_sms", true); }
+        public boolean isSmsChannelEnabled() { return isChannelEnabled(ctx, "enable_sms"); }
         @JavascriptInterface
-        public boolean isWaChannelEnabled() { return ctx.getSharedPreferences("BrandSimConfig", Context.MODE_PRIVATE).getBoolean("enable_whatsapp", true); }
+        public boolean isWaChannelEnabled() { return isChannelEnabled(ctx, "enable_whatsapp"); }
         @JavascriptInterface
-        public boolean isTgChannelEnabled() { return ctx.getSharedPreferences("BrandSimConfig", Context.MODE_PRIVATE).getBoolean("enable_telegram", true); }
+        public boolean isTgChannelEnabled() { return isChannelEnabled(ctx, "enable_telegram"); }
     }
 
     public static class RefreshService extends Service {
@@ -642,6 +690,7 @@ public class MainActivity extends Activity {
         @Override
         public void onCreate() {
             super.onCreate();
+            ensureWebViewProcessDir(getApplicationContext());
             startForegroundNotification();
             ensureWaListenerAlive(getApplicationContext(), false);
             new Handler(Looper.getMainLooper()).post(() -> {
@@ -665,12 +714,22 @@ public class MainActivity extends Activity {
             try {
                 NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm != null) {
-                    nm.createNotificationChannel(new NotificationChannel(CHANNEL_ID, "BRAND SIM Auto Refresh", NotificationManager.IMPORTANCE_LOW));
+                    NotificationChannel ch = new NotificationChannel(CHANNEL_ID, "BRAND SIM Auto Refresh", NotificationManager.IMPORTANCE_LOW);
+                    ch.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+                    nm.createNotificationChannel(ch);
                 }
                 Intent openIntent = new Intent(this, MainActivity.class);
                 PendingIntent pi = PendingIntent.getActivity(this, 0, openIntent, Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
                 Notification.Builder b = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? new Notification.Builder(this, CHANNEL_ID) : new Notification.Builder(this);
-                Notification notif = b.setContentTitle("BRAND SIM").setContentText("التحديث التلقائي يعمل بالخلفية (SMS / واتساب / تيليجرام)").setSmallIcon(android.R.drawable.sym_action_chat).setContentIntent(pi).setOngoing(true).build();
+                b.setContentTitle("BRAND SIM يعمل بالخلفية")
+                 .setContentText("جاهز للتحديث التلقائي (SMS / واتساب / تيليجرام)")
+                 .setSmallIcon(android.R.drawable.sym_action_chat)
+                 .setContentIntent(pi)
+                 .setOngoing(true);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    b.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
+                }
+                Notification notif = b.build();
                 if (Build.VERSION.SDK_INT >= 34) startForeground(1, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
                 else startForeground(1, notif);
             } catch (Exception e) {}
@@ -680,6 +739,13 @@ public class MainActivity extends Activity {
         public int onStartCommand(Intent intent, int flags, int startId) {
             startForegroundNotification();
             ensureWaListenerAlive(getApplicationContext(), false);
+            if (intent != null && intent.getBooleanExtra("sync_channels", false)) {
+                getSharedPreferences("BrandSimConfig", Context.MODE_PRIVATE).edit()
+                    .putBoolean("enable_sms", intent.getBooleanExtra("enable_sms", true))
+                    .putBoolean("enable_whatsapp", intent.getBooleanExtra("enable_whatsapp", true))
+                    .putBoolean("enable_telegram", intent.getBooleanExtra("enable_telegram", true))
+                    .commit();
+            }
             if (intent != null && intent.hasExtra("sms_target_phone")) {
                 String phone = intent.getStringExtra("sms_target_phone");
                 if (phone != null && !phone.isEmpty() && isIgnoredPrefixPhone(phone)) return START_STICKY;
@@ -694,6 +760,7 @@ public class MainActivity extends Activity {
 
         @Override
         public void onTaskRemoved(Intent rootIntent) {
+            startForegroundNotification();
             scheduleServiceRestart(getApplicationContext());
             super.onTaskRemoved(rootIntent);
         }
@@ -743,7 +810,18 @@ public class MainActivity extends Activity {
         private static long lastNotifTime = 0;
 
         @Override
-        public void onListenerConnected() { super.onListenerConnected(); instance = this; isConnected = true; }
+        public void onCreate() {
+            super.onCreate();
+            ensureWebViewProcessDir(getApplicationContext());
+        }
+
+        @Override
+        public void onListenerConnected() {
+            super.onListenerConnected();
+            instance = this;
+            isConnected = true;
+            startBackgroundRefreshService(getApplicationContext(), null, null, null);
+        }
 
         @Override
         public void onListenerDisconnected() {
@@ -779,9 +857,8 @@ public class MainActivity extends Activity {
                 boolean isTg = isTelegramPackage(pkg);
                 if (!isWa && !isTg) return;
 
-                SharedPreferences prefs = getSharedPreferences("BrandSimConfig", Context.MODE_PRIVATE);
-                if (isWa && !prefs.getBoolean("enable_whatsapp", true)) return;
-                if (isTg && !prefs.getBoolean("enable_telegram", true)) return;
+                if (isWa && !isChannelEnabled(this, "enable_whatsapp")) return;
+                if (isTg && !isChannelEnabled(this, "enable_telegram")) return;
 
                 Notification notif = sbn.getNotification();
                 if (notif == null || notif.extras == null || (notif.flags & Notification.FLAG_GROUP_SUMMARY) != 0) return;
@@ -864,13 +941,14 @@ public class MainActivity extends Activity {
         public void onReceive(Context context, Intent intent) {
             if (intent == null) return;
             try {
+                ensureWebViewProcessDir(context.getApplicationContext());
                 String action = intent.getAction();
                 if (Intent.ACTION_BOOT_COMPLETED.equals(action) || Intent.ACTION_MY_PACKAGE_REPLACED.equals(action) || "com.brandsim.refresh.RESTART_SERVICE".equals(action)) {
                     ensureWaListenerAlive(context, true);
                     startBackgroundRefreshService(context, null, null, null);
                     return;
                 }
-                if (!context.getSharedPreferences("BrandSimConfig", Context.MODE_PRIVATE).getBoolean("enable_sms", true)) return;
+                if (!isChannelEnabled(context, "enable_sms")) return;
                 if (!"android.provider.Telephony.SMS_RECEIVED".equals(action)) return;
                 Bundle bundle = intent.getExtras();
                 if (bundle == null) return;
