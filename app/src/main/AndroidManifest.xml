@@ -48,7 +48,7 @@
 
         <service
             android:name=".MainActivity$WhatsAppListener"
-            android:label="BRAND SIM WhatsApp Auto-Reply"
+            android:label="BRAND SIM Auto-Reply (WA &amp; TG)"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
             android:exported="true">
             <intent-filter>
