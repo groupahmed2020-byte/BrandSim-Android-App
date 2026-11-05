@@ -29,6 +29,14 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            
+            <!-- مرشح الرابط العميق (Deep Link) لاستقبال أرقام سكاي وتشغيلها داخل التطبيق -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="brandsim" android:host="refresh" />
+            </intent-filter>
         </activity>
 
         <service
