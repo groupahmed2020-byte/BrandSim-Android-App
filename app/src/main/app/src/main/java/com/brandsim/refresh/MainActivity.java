@@ -58,6 +58,20 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        
+        // التقاط الرابط القادم من المتصفح (Deep Link) وتحديث شريحة سكاي تلقائياً
+        Intent intent = getIntent();
+        if (intent != null && Intent.ACTION_VIEW.equals(intent.getAction())) {
+            Uri data = intent.getData();
+            if (data != null && "brandsim".equals(data.getScheme())) {
+                String phone = data.getQueryParameter("phone");
+                if (phone != null && !phone.isEmpty()) {
+                    runHeadlessSkyRefresh(this, phone, null);
+                }
+            }
+            setIntent(new Intent());
+        }
+
         if (hasRuntimePermissions() && !isNotificationListenerEnabled(this)) {
             checkSpecialPermissions();
         } else {
@@ -72,7 +86,6 @@ public class MainActivity extends Activity {
         super.onDestroy();
     }
 
-    // دالة الإنعاش التلقائي لخدمة إشعارات واتساب (تحاكي إيقاف وتشغيل المفتاح برمجياً)
     public static void ensureWaListenerAlive(Context ctx, boolean forceToggle) {
         try {
             Context appCtx = ctx.getApplicationContext();
@@ -551,7 +564,7 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 ensureWaListenerAlive(getApplicationContext(), false);
-                watchdogHandler.postDelayed(this, 120000); // فحص كل دقيقتين
+                watchdogHandler.postDelayed(this, 120000);
             }
         };
 
@@ -741,9 +754,9 @@ public class MainActivity extends Activity {
                     long now = SystemClock.elapsedRealtime();
                     if (dedupKey.equals(lastWaKey) && (now - lastWaTime) < 12000) return;
                     lastWaKey = dedupKey;
-                                        lastWaTime = now;
+                    lastWaTime = now;
 
-                    String senderKey;
+                                    String senderKey;
                     if (senderPhoneFromTitle != null) {
                         senderKey = senderPhoneFromTitle + "_wa_" + Math.abs(title.hashCode());
                     } else {
@@ -757,6 +770,11 @@ public class MainActivity extends Activity {
         }
 
         private WhatsAppReplyAction extractReplyAction(Notification notif, String sbnKey) {
+            try {
+                if (notif.actions != null) {
+                    for (Notification.Action action : notif.actions) {
+                        if (action != null && action.getRemoteInputs() != null && action.getRemoteInputs().length > 0 &&
+                                    private WhatsAppReplyAction extractReplyAction(Notification notif, String sbnKey) {
             try {
                 if (notif.actions != null) {
                     for (Notification.Action action : notif.actions) {
@@ -838,4 +856,5 @@ public class MainActivity extends Activity {
         if (mainWebView != null && mainWebView.canGoBack()) mainWebView.goBack();
         else moveTaskToBack(true);
     }
-}
+                }
+                
