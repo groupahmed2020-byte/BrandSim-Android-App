@@ -30,9 +30,11 @@ public class MainActivity extends Activity {
     public static class WhatsAppReplyAction {
         public final PendingIntent pendingIntent;
         public final RemoteInput[] remoteInputs;
-        public WhatsAppReplyAction(PendingIntent pi, RemoteInput[] ri) {
+        public final String sbnKey;
+        public WhatsAppReplyAction(PendingIntent pi, RemoteInput[] ri, String key) {
             this.pendingIntent = pi;
             this.remoteInputs = ri;
+            this.sbnKey = key;
         }
     }
 
@@ -49,14 +51,17 @@ public class MainActivity extends Activity {
         mainWebView.loadUrl("file:///android_asset/refresh.html");
 
         startPermissionSetupFlow();
+        ensureWaListenerAlive(this, true);
         startBackgroundRefreshService(this, null, null, null);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if (hasRuntimePermissions() && !isNotificationListenerEnabled()) {
+        if (hasRuntimePermissions() && !isNotificationListenerEnabled(this)) {
             checkSpecialPermissions();
+        } else {
+            ensureWaListenerAlive(this, false);
         }
     }
 
@@ -65,6 +70,24 @@ public class MainActivity extends Activity {
         if (instance == this) instance = null;
         scheduleServiceRestart(getApplicationContext());
         super.onDestroy();
+    }
+
+    // دالة الإنعاش التلقائي لخدمة إشعارات واتساب (تحاكي إيقاف وتشغيل المفتاح برمجياً)
+    public static void ensureWaListenerAlive(Context ctx, boolean forceToggle) {
+        try {
+            Context appCtx = ctx.getApplicationContext();
+            if (!isNotificationListenerEnabled(appCtx)) return;
+            if (!forceToggle && WhatsAppListener.isConnected) return;
+
+            ComponentName cn = new ComponentName(appCtx, WhatsAppListener.class);
+            PackageManager pm = appCtx.getPackageManager();
+            pm.setComponentEnabledSetting(cn, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP);
+            pm.setComponentEnabledSetting(cn, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP);
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                NotificationListenerService.requestRebind(cn);
+            }
+        } catch (Exception e) {}
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -117,10 +140,10 @@ public class MainActivity extends Activity {
         } catch (Exception e) {}
     }
 
-    public boolean isNotificationListenerEnabled() {
+    public static boolean isNotificationListenerEnabled(Context ctx) {
         try {
-            String pkgName = getPackageName();
-            final String flat = Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
+            String pkgName = ctx.getPackageName();
+            final String flat = Settings.Secure.getString(ctx.getContentResolver(), "enabled_notification_listeners");
             return flat != null && flat.contains(pkgName);
         } catch (Exception e) {
             return false;
@@ -177,8 +200,10 @@ public class MainActivity extends Activity {
             } catch (Exception e) {}
         }
 
-        if (!isNotificationListenerEnabled()) {
+        if (!isNotificationListenerEnabled(this)) {
             promptForNotificationAccess();
+        } else {
+            ensureWaListenerAlive(this, true);
         }
     }
 
@@ -253,10 +278,17 @@ public class MainActivity extends Activity {
                 }
                 RemoteInput.addResultsToIntent(waAction.remoteInputs, localIntent, localBundle);
                 waAction.pendingIntent.send(ctx, 0, localIntent);
+                if (WhatsAppListener.instance != null && waAction.sbnKey != null) {
+                    try { WhatsAppListener.instance.cancelNotification(waAction.sbnKey); } catch (Exception ignored) {}
+                }
                 new Handler(Looper.getMainLooper()).post(() -> Toast.makeText(ctx, "تم الرد عبر واتساب بنجاح", Toast.LENGTH_SHORT).show());
                 return;
-            } catch (Exception e) {}
+            } catch (Exception e) {
+                return;
+            }
         }
+
+        if (sender.contains("_wa_") || sender.startsWith("wa_")) return;
 
         try {
             SmsManager sms = SmsManager.getDefault();
@@ -374,7 +406,7 @@ public class MainActivity extends Activity {
                 public void onPageFinished(WebView view, String url) {
                     super.onPageFinished(view, url);
                     if (completed[0]) return;
-                                    StringBuilder sb = new StringBuilder();
+                                        StringBuilder sb = new StringBuilder();
                     sb.append("javascript:(function(){");
                     sb.append("window.__skyTargetPhone='").append(phone).append("';");
                     sb.append("function isWaitOrStatic(s){");
@@ -512,12 +544,24 @@ public class MainActivity extends Activity {
         private boolean isBgLoaded = false;
         private final Queue<String[]> queue = new LinkedList<>();
         private PowerManager.WakeLock wakeLock;
+        private final Handler watchdogHandler = new Handler(Looper.getMainLooper());
         private static final String CHANNEL_ID = "brand_sim_bg_channel";
+
+        private final Runnable waWatchdog = new Runnable() {
+            @Override
+            public void run() {
+                ensureWaListenerAlive(getApplicationContext(), false);
+                watchdogHandler.postDelayed(this, 120000); // فحص كل دقيقتين
+            }
+        };
 
         @Override
         public void onCreate() {
             super.onCreate();
             startForegroundNotification();
+            ensureWaListenerAlive(getApplicationContext(), false);
+            watchdogHandler.postDelayed(waWatchdog, 60000);
+
             new Handler(Looper.getMainLooper()).post(() -> {
                 try {
                     bgWebView = new WebView(getApplicationContext());
@@ -553,6 +597,7 @@ public class MainActivity extends Activity {
         @Override
         public int onStartCommand(Intent intent, int flags, int startId) {
             startForegroundNotification();
+            ensureWaListenerAlive(getApplicationContext(), false);
             if (intent != null && intent.hasExtra("sms_target_phone")) {
                 acquireTempWakeLock();
                 String phone = intent.getStringExtra("sms_target_phone");
@@ -573,6 +618,7 @@ public class MainActivity extends Activity {
 
         @Override
         public void onDestroy() {
+            watchdogHandler.removeCallbacksAndMessages(null);
             scheduleServiceRestart(getApplicationContext());
             super.onDestroy();
         }
@@ -609,12 +655,38 @@ public class MainActivity extends Activity {
     }
 
     public static class WhatsAppListener extends NotificationListenerService {
+        public static WhatsAppListener instance;
+        public static volatile boolean isConnected = false;
         private static String lastWaKey = "";
         private static long lastWaTime = 0;
 
         @Override
+        public void onListenerConnected() {
+            super.onListenerConnected();
+            instance = this;
+            isConnected = true;
+        }
+
+        @Override
+        public void onListenerDisconnected() {
+            super.onListenerDisconnected();
+            isConnected = false;
+            if (instance == this) instance = null;
+            ensureWaListenerAlive(getApplicationContext(), true);
+        }
+
+        @Override
+        public void onDestroy() {
+            isConnected = false;
+            if (instance == this) instance = null;
+            super.onDestroy();
+        }
+
+        @Override
         public void onNotificationPosted(StatusBarNotification sbn) {
             if (sbn == null) return;
+            isConnected = true;
+            instance = this;
             try {
                 SharedPreferences sp = getSharedPreferences("BrandSimConfig", Context.MODE_PRIVATE);
                 if (!sp.getBoolean("enable_whatsapp", true)) {
@@ -630,15 +702,29 @@ public class MainActivity extends Activity {
                 if ((notif.flags & Notification.FLAG_GROUP_SUMMARY) != 0) return;
 
                 CharSequence titleCs = notif.extras.getCharSequence(Notification.EXTRA_TITLE);
-                CharSequence textCs = notif.extras.getCharSequence(Notification.EXTRA_TEXT);
-                CharSequence bigTextCs = notif.extras.getCharSequence(Notification.EXTRA_BIG_TEXT);
-
                 String title = titleCs != null ? titleCs.toString().trim() : "";
-                String body = bigTextCs != null ? bigTextCs.toString().trim() : (textCs != null ? textCs.toString().trim() : "");
+
+                String body = "";
+                CharSequence[] textLines = notif.extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES);
+                if (textLines != null && textLines.length > 0) {
+                    CharSequence lastLine = textLines[textLines.length - 1];
+                    if (lastLine != null) body = lastLine.toString().trim();
+                }
+                if (body.isEmpty()) {
+                    CharSequence textCs = notif.extras.getCharSequence(Notification.EXTRA_TEXT);
+                    if (textCs != null) body = textCs.toString().trim();
+                }
+                if (body.isEmpty()) {
+                    CharSequence bigTextCs = notif.extras.getCharSequence(Notification.EXTRA_BIG_TEXT);
+                    if (bigTextCs != null) {
+                        String[] lines = bigTextCs.toString().trim().split("\n");
+                        body = lines[lines.length - 1].trim();
+                    }
+                }
 
                 if (body.isEmpty() || isIgnoredSystemSms(body)) return;
 
-                WhatsAppReplyAction replyAction = extractReplyAction(notif);
+                WhatsAppReplyAction replyAction = extractReplyAction(notif, sbn.getKey());
                 if (replyAction == null) return;
 
                 boolean isDetails = isDetailsRequestSms(body);
@@ -655,7 +741,7 @@ public class MainActivity extends Activity {
                     long now = SystemClock.elapsedRealtime();
                     if (dedupKey.equals(lastWaKey) && (now - lastWaTime) < 12000) return;
                     lastWaKey = dedupKey;
-                    lastWaTime = now;
+                                        lastWaTime = now;
 
                     String senderKey;
                     if (senderPhoneFromTitle != null) {
@@ -665,25 +751,24 @@ public class MainActivity extends Activity {
                     }
 
                     waReplyMap.put(senderKey, replyAction);
-                    cancelNotification(sbn.getKey());
                     startBackgroundRefreshService(getApplicationContext(), extractedPhone, senderKey, mode);
                 }
             } catch (Exception e) {}
         }
 
-        private WhatsAppReplyAction extractReplyAction(Notification notif) {
+        private WhatsAppReplyAction extractReplyAction(Notification notif, String sbnKey) {
             try {
                 if (notif.actions != null) {
                     for (Notification.Action action : notif.actions) {
                         if (action != null && action.getRemoteInputs() != null && action.getRemoteInputs().length > 0 && action.actionIntent != null) {
-                            return new WhatsAppReplyAction(action.actionIntent, action.getRemoteInputs());
+                            return new WhatsAppReplyAction(action.actionIntent, action.getRemoteInputs(), sbnKey);
                         }
                     }
                 }
                 Notification.WearableExtender wearable = new Notification.WearableExtender(notif);
                 for (Notification.Action action : wearable.getActions()) {
                     if (action != null && action.getRemoteInputs() != null && action.getRemoteInputs().length > 0 && action.actionIntent != null) {
-                        return new WhatsAppReplyAction(action.actionIntent, action.getRemoteInputs());
+                        return new WhatsAppReplyAction(action.actionIntent, action.getRemoteInputs(), sbnKey);
                     }
                 }
             } catch (Exception e) {}
@@ -699,16 +784,18 @@ public class MainActivity extends Activity {
         public void onReceive(Context context, Intent intent) {
             if (intent == null) return;
             try {
-                                SharedPreferences sp = context.getSharedPreferences("BrandSimConfig", Context.MODE_PRIVATE);
+                String action = intent.getAction();
+                if (Intent.ACTION_BOOT_COMPLETED.equals(action) || Intent.ACTION_MY_PACKAGE_REPLACED.equals(action) || "com.brandsim.refresh.RESTART_SERVICE".equals(action)) {
+                    ensureWaListenerAlive(context, true);
+                    startBackgroundRefreshService(context, null, null, null);
+                    return;
+                }
+
+                SharedPreferences sp = context.getSharedPreferences("BrandSimConfig", Context.MODE_PRIVATE);
                 if (!sp.getBoolean("enable_sms", true)) {
                     return;
                 }
 
-                String action = intent.getAction();
-                if (Intent.ACTION_BOOT_COMPLETED.equals(action) || Intent.ACTION_MY_PACKAGE_REPLACED.equals(action) || "com.brandsim.refresh.RESTART_SERVICE".equals(action)) {
-                    startBackgroundRefreshService(context, null, null, null);
-                    return;
-                }
                 if (!"android.provider.Telephony.SMS_RECEIVED".equals(action)) return;
                 Bundle bundle = intent.getExtras();
                 if (bundle == null) return;
