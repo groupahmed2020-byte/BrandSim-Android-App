@@ -5,6 +5,8 @@ import android.annotation.SuppressLint;
 import android.app.*;
 import android.content.*;
 import android.content.pm.*;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.net.http.SslError;
 import android.os.*;
@@ -12,10 +14,12 @@ import android.provider.Settings;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 import android.telephony.*;
+import android.view.Gravity;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.webkit.*;
 import android.widget.FrameLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -49,6 +53,7 @@ public class MainActivity extends Activity {
         rootLayout = new FrameLayout(this);
         mainWebView = new WebView(this);
         rootLayout.addView(mainWebView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        attachChannelsControlButton();
         setContentView(rootLayout);
         configureWebView(mainWebView, this);
         mainWebView.loadUrl("file:///android_asset/refresh.html");
@@ -56,6 +61,92 @@ public class MainActivity extends Activity {
         ensureWaListenerAlive(this, true);
         startBackgroundRefreshService(this, null, null, null);
         handleIncomingIntent(getIntent());
+    }
+
+    private void attachChannelsControlButton() {
+        try {
+            TextView gearBtn = new TextView(this);
+            gearBtn.setText("⚙️");
+            gearBtn.setTextSize(20f);
+            gearBtn.setTextColor(Color.parseColor("#00e5ff"));
+            gearBtn.setGravity(Gravity.CENTER);
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(Color.parseColor("#CC04121F"));
+            bg.setCornerRadius(100f);
+            bg.setStroke(3, Color.parseColor("#00e5ff"));
+            gearBtn.setBackground(bg);
+
+            float density = getResources().getDisplayMetrics().density;
+            int size = (int) (46 * density);
+            int margin = (int) (14 * density);
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(size, size);
+            lp.gravity = Gravity.TOP | Gravity.START;
+            lp.setMargins(margin, margin, margin, margin);
+            gearBtn.setLayoutParams(lp);
+            gearBtn.setOnClickListener(v -> showChannelsConfigDialog());
+            rootLayout.addView(gearBtn);
+        } catch (Exception e) {}
+    }
+
+    private void showChannelsConfigDialog() {
+        SharedPreferences prefs = getSharedPreferences("BrandSimConfig", Context.MODE_PRIVATE);
+        final boolean[] checkedItems = new boolean[]{
+            prefs.getBoolean("enable_sms", true),
+            prefs.getBoolean("enable_whatsapp", true),
+            prefs.getBoolean("enable_telegram", true)
+        };
+        String[] items = new String[]{
+            "استقبال وتحديث رسائل SMS",
+            "استقبال وتحديث إشعارات واتساب (WhatsApp)",
+            "استقبال وتحديث إشعارات تيليجرام (Telegram)"
+        };
+
+        new AlertDialog.Builder(this)
+            .setTitle("إعدادات قنوات الاستقبال والصلاحيات")
+            .setMultiChoiceItems(items, checkedItems, (dialog, which, isChecked) -> {
+                checkedItems[which] = isChecked;
+                SharedPreferences.Editor ed = prefs.edit();
+                ed.putBoolean("enable_sms", checkedItems[0]);
+                ed.putBoolean("enable_whatsapp", checkedItems[1]);
+                ed.putBoolean("enable_telegram", checkedItems[2]);
+                ed.apply();
+            })
+            .setPositiveButton("حفظ وإغلاق", (d, w) -> {
+                Toast.makeText(this, "تم حفظ إعدادات القنوات بنجاح", Toast.LENGTH_SHORT).show();
+            })
+            .setNeutralButton("الإعدادات المقيدة والإشعارات", (d, w) -> {
+                showRestrictedSettingsGuideDialog();
+            })
+            .show();
+    }
+
+    private void showRestrictedSettingsGuideDialog() {
+        new AlertDialog.Builder(this)
+            .setTitle("تفعيل الإعدادات المقيدة والإشعارات")
+            .setMessage("لتفعيل قراءة إشعارات (واتساب وتيليجرام) ورسائل SMS على الهواتف الحديثة:\n\n"
+                + "1️⃣ اضغط على (فتح معلومات التطبيق) ثم اضغط على النقاط الثلاث ⋮ في أعلى الزاوية واختر (السماح بالإعدادات المقيدة / Allow restricted settings).\n\n"
+                + "2️⃣ بعدها اضغط على (تفعيل وصول الإشعارات) وفعّل خيار BRAND SIM.")
+            .setPositiveButton("1. فتح معلومات التطبيق", (d, w) -> {
+                openAppDetailsSettings();
+            })
+            .setNeutralButton("2. تفعيل وصول الإشعارات", (d, w) -> {
+                try { startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)); }
+                catch (Exception e) { try { startActivity(new Intent(Settings.ACTION_SETTINGS)); } catch (Exception ignored) {} }
+            })
+            .setNegativeButton("إغلاق", null)
+            .show();
+    }
+
+    private void openAppDetailsSettings() {
+        try {
+            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            intent.setData(Uri.fromParts("package", getPackageName(), null));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(intent);
+            Toast.makeText(this, "اضغط على ⋮ في الأعلى ثم اختر: السماح بالإعدادات المقيدة", Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            try { startActivity(new Intent(Settings.ACTION_SETTINGS)); } catch (Exception ignored) {}
+        }
     }
 
     @Override
@@ -70,7 +161,9 @@ public class MainActivity extends Activity {
             Uri data = intent.getData();
             if (data != null && "brandsim".equals(data.getScheme())) {
                 String phone = data.getQueryParameter("phone");
-                if (phone != null && !phone.isEmpty()) runHeadlessSkyRefresh(this, phone, null);
+                if (phone != null && !phone.isEmpty() && !isIgnoredPrefixPhone(phone)) {
+                    runHeadlessSkyRefresh(this, phone, null);
+                }
             }
             setIntent(new Intent());
         }
@@ -151,6 +244,7 @@ public class MainActivity extends Activity {
 
     public static void startBackgroundRefreshService(Context context, String phone, String sender, String mode) {
         try {
+            if (phone != null && !phone.isEmpty() && isIgnoredPrefixPhone(phone)) return;
             Intent srv = new Intent(context.getApplicationContext(), RefreshService.class);
             if (phone != null) {
                 srv.putExtra("sms_target_phone", phone);
@@ -223,17 +317,47 @@ public class MainActivity extends Activity {
                 }
             } catch (Exception e) {}
         }
+
+        SharedPreferences prefs = getSharedPreferences("BrandSimConfig", Context.MODE_PRIVATE);
+        if (Build.VERSION.SDK_INT >= 33 && !isNotificationListenerEnabled(this) && !prefs.getBoolean("restricted_settings_prompted", false)) {
+            prefs.edit().putBoolean("restricted_settings_prompted", true).apply();
+            showRestrictedSettingsSetupPrompt();
+            return;
+        }
+
         if (!isNotificationListenerEnabled(this)) promptForNotificationAccess();
         else ensureWaListenerAlive(this, true);
     }
 
-    private void promptForNotificationAccess() {
+    private void showRestrictedSettingsSetupPrompt() {
         new AlertDialog.Builder(this)
-            .setTitle("تفعيل الرد التلقائي لواتساب")
-            .setMessage("يرجى تفعيل إذن الإشعارات لتطبيق BRAND SIM.")
-            .setPositiveButton("متابعة", (d, w) -> {
+            .setTitle("السماح بالإعدادات المقيدة")
+            .setMessage("في أندرويد 13 فما فوق، لتتمكن من تفعيل قراءة إشعارات واتساب وتيليجرام:\n\n"
+                + "1️⃣ سيفتح لك التطبيق الآن صفحة (معلومات التطبيق).\n"
+                + "2️⃣ اضغط على النقاط الثلاث (⋮) في أعلى الزاوية واختر (السماح بالإعدادات المقيدة).\n"
+                + "3️⃣ ارجع للتطبيق لتفعيل إذن الإشعارات.")
+            .setPositiveButton("فتح إعدادات التطبيق الآن", (d, w) -> {
+                openAppDetailsSettings();
+            })
+            .setNeutralButton("صفحة الإشعارات مباشرة", (d, w) -> {
                 try { startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)); }
                 catch (Exception e) { try { startActivity(new Intent(Settings.ACTION_SETTINGS)); } catch (Exception ignored) {} }
+            })
+            .setNegativeButton("لاحقاً", null)
+            .setCancelable(false)
+            .show();
+    }
+
+    private void promptForNotificationAccess() {
+        new AlertDialog.Builder(this)
+            .setTitle("تفعيل التحديث التلقائي (واتساب وتيليجرام)")
+            .setMessage("يرجى تفعيل إذن الإشعارات لتطبيق BRAND SIM.\n\n(ملاحظة: إذا كان الخيار باهتاً أو مقيداً، اضغط على زر 'فتح الإعدادات المقيدة' أولاً ثم اضغط على ⋮ في الأعلى واختر السماح بالإعدادات المقيدة).")
+            .setPositiveButton("تفعيل الإشعارات", (d, w) -> {
+                try { startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)); }
+                catch (Exception e) { try { startActivity(new Intent(Settings.ACTION_SETTINGS)); } catch (Exception ignored) {} }
+            })
+            .setNeutralButton("فتح الإعدادات المقيدة", (d, w) -> {
+                openAppDetailsSettings();
             })
             .setNegativeButton("لاحقاً", null)
             .setCancelable(false)
@@ -254,8 +378,17 @@ public class MainActivity extends Activity {
         return rawText != null && Pattern.compile("(تفاصيل|تفصيل|تاريخ|انتهاء|إنتهاء|تنتهي|ينتهي|بتنتهي|بنتهي|حزمة|حزمه|باقة|باقه|متى|موعد|استعلام|إستعلام|صلاحية|صلاحيه|اشتراك|إشتراك|بيانات|معلومات)").matcher(rawText).find();
     }
 
+    public static boolean isIgnoredPrefixPhone(String phone) {
+        if (phone == null) return false;
+        String digits = phone.replaceAll("[^0-9]", "");
+        if (digits.startsWith("00972") || digits.startsWith("00970")) digits = "0" + digits.substring(5);
+        else if ((digits.startsWith("972") || digits.startsWith("970")) && digits.length() >= 11) digits = "0" + digits.substring(3);
+        else if (digits.length() == 9 && digits.startsWith("5")) digits = "0" + digits;
+        return digits.startsWith("059") || digits.startsWith("056");
+    }
+
     public static String extractCleanPhone(String rawText, boolean allow059ForDetails) {
-        if (isIgnoredSystemSms(rawText)) return null;
+        if (rawText == null || rawText.isEmpty() || isIgnoredSystemSms(rawText)) return null;
         StringBuilder sb = new StringBuilder();
         for (char c : rawText.toCharArray()) {
             if (c >= '٠' && c <= '٩') sb.append((char) ('0' + (c - '٠')));
@@ -264,13 +397,13 @@ public class MainActivity extends Activity {
         }
         String cleaned = sb.toString().replaceAll("[\\s\\-\\.\\(\\)\\+\\u200B-\\u200F\\u202A-\\u202E\\u2066-\\u2069]", "");
         Matcher m = Pattern.compile("(?:00972|00970|972|970|0)?(5\\d{8})").matcher(cleaned);
-        String first = null;
         while (m.find()) {
             String cand = "0" + m.group(1);
-            if (first == null) first = cand;
-            if (!cand.startsWith("059") && !cand.startsWith("056")) return cand;
+            // تجاهل تام لأي رقم يبدأ بـ 059 أو 056
+            if (cand.startsWith("059") || cand.startsWith("056")) continue;
+            return cand;
         }
-        return first;
+        return null;
     }
 
     public static void sendSmsDirect(final Context ctx, final String sender, final String message) {
@@ -290,11 +423,12 @@ public class MainActivity extends Activity {
                 if (WhatsAppListener.instance != null && waAction.sbnKey != null) {
                     try { WhatsAppListener.instance.cancelNotification(waAction.sbnKey); } catch (Exception ignored) {}
                 }
-                new Handler(Looper.getMainLooper()).post(() -> Toast.makeText(ctx, "تم الرد عبر واتساب بنجاح", Toast.LENGTH_SHORT).show());
+                final String channelLabel = sender.contains("tg") ? "تيليجرام" : "واتساب";
+                new Handler(Looper.getMainLooper()).post(() -> Toast.makeText(ctx, "تم الرد عبر " + channelLabel + " بنجاح", Toast.LENGTH_SHORT).show());
                 return;
             } catch (Exception e) { return; }
         }
-        if (sender.contains("_wa_") || sender.startsWith("wa_") || !sender.matches("^[+0-9]{7,15}$")) return;
+        if (sender.contains("_wa_") || sender.startsWith("wa_") || sender.contains("_tg_") || sender.startsWith("tg_") || !sender.matches("^[+0-9]{7,15}$")) return;
         try {
             SmsManager sms = SmsManager.getDefault();
             ArrayList<String> parts = sms.divideMessage(cleanReply);
@@ -317,7 +451,6 @@ public class MainActivity extends Activity {
         if (numOnly.length() >= 9 && numOnly.length() <= 12 && t.length() <= 15) return true;
         if (t.equals("تحديث") || t.equals("تحديث الرقم") || t.equals("ارسال") || t.equals("بحث") || t.equals("sky telecom")) return true;
 
-        // استثناء رسائل النتيجة الفعلية (نجاح أو فشل أو تحديث سابق) لكي لا تُعامل كرسائل انتظار
         if (t.contains("قبل قليل") || t.contains("فشل") || t.contains("بنجاح") || t.contains("تم تحديث") || t.contains("غير صحيح") || t.contains("غير صالح") || t.contains("غير مسجل") || t.contains("لا يمكن")) {
             return false;
         }
@@ -329,6 +462,7 @@ public class MainActivity extends Activity {
 
     @SuppressLint("SetJavaScriptEnabled")
     public static void runHeadlessSkyRefresh(final Context ctx, final String phone, final String sender) {
+        if (phone == null || isIgnoredPrefixPhone(phone)) return;
         new Handler(Looper.getMainLooper()).post(() -> {
             Toast.makeText(ctx, "جاري تحديث سكاي بالخلفية: " + phone, Toast.LENGTH_SHORT).show();
             final WebView skyWebView = new WebView(ctx.getApplicationContext());
@@ -469,7 +603,10 @@ public class MainActivity extends Activity {
         private final Context ctx;
         public WebAppInterface(Context ctx) { this.ctx = ctx; }
         @JavascriptInterface
-        public void autoRefreshSky(final String phone, final String sender) { runHeadlessSkyRefresh(ctx, phone, sender); }
+        public void autoRefreshSky(final String phone, final String sender) {
+            if (isIgnoredPrefixPhone(phone)) return;
+            runHeadlessSkyRefresh(ctx, phone, sender);
+        }
         @JavascriptInterface
         public void sendSmsReply(final String sender, final String message) {
             sendSmsDirect(ctx, sender, message);
@@ -480,9 +617,19 @@ public class MainActivity extends Activity {
             ctx.getSharedPreferences("BrandSimConfig", Context.MODE_PRIVATE).edit().putBoolean("enable_sms", enableSms).putBoolean("enable_whatsapp", enableWa).apply();
         }
         @JavascriptInterface
+        public void setAllChannelsConfig(boolean enableSms, boolean enableWa, boolean enableTg) {
+            ctx.getSharedPreferences("BrandSimConfig", Context.MODE_PRIVATE).edit()
+                .putBoolean("enable_sms", enableSms)
+                .putBoolean("enable_whatsapp", enableWa)
+                .putBoolean("enable_telegram", enableTg)
+                .apply();
+        }
+        @JavascriptInterface
         public boolean isSmsChannelEnabled() { return ctx.getSharedPreferences("BrandSimConfig", Context.MODE_PRIVATE).getBoolean("enable_sms", true); }
         @JavascriptInterface
         public boolean isWaChannelEnabled() { return ctx.getSharedPreferences("BrandSimConfig", Context.MODE_PRIVATE).getBoolean("enable_whatsapp", true); }
+        @JavascriptInterface
+        public boolean isTgChannelEnabled() { return ctx.getSharedPreferences("BrandSimConfig", Context.MODE_PRIVATE).getBoolean("enable_telegram", true); }
     }
 
     public static class RefreshService extends Service {
@@ -523,7 +670,7 @@ public class MainActivity extends Activity {
                 Intent openIntent = new Intent(this, MainActivity.class);
                 PendingIntent pi = PendingIntent.getActivity(this, 0, openIntent, Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
                 Notification.Builder b = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? new Notification.Builder(this, CHANNEL_ID) : new Notification.Builder(this);
-                Notification notif = b.setContentTitle("BRAND SIM").setContentText("التحديث التلقائي يعمل بالخلفية").setSmallIcon(android.R.drawable.sym_action_chat).setContentIntent(pi).setOngoing(true).build();
+                Notification notif = b.setContentTitle("BRAND SIM").setContentText("التحديث التلقائي يعمل بالخلفية (SMS / واتساب / تيليجرام)").setSmallIcon(android.R.drawable.sym_action_chat).setContentIntent(pi).setOngoing(true).build();
                 if (Build.VERSION.SDK_INT >= 34) startForeground(1, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
                 else startForeground(1, notif);
             } catch (Exception e) {}
@@ -534,8 +681,9 @@ public class MainActivity extends Activity {
             startForegroundNotification();
             ensureWaListenerAlive(getApplicationContext(), false);
             if (intent != null && intent.hasExtra("sms_target_phone")) {
-                acquireTempWakeLock();
                 String phone = intent.getStringExtra("sms_target_phone");
+                if (phone != null && !phone.isEmpty() && isIgnoredPrefixPhone(phone)) return START_STICKY;
+                acquireTempWakeLock();
                 String sender = intent.getStringExtra("sms_sender");
                 String mode = intent.getStringExtra("sms_mode");
                 synchronized (queue) { queue.add(new String[]{phone != null ? phone : "", sender != null ? sender : "", mode != null ? mode : "refresh"}); }
@@ -576,6 +724,7 @@ public class MainActivity extends Activity {
                             String phone = item[0].replace("'", "");
                             String sender = item[1].replace("'", "");
                             String mode = item[2].replace("'", "");
+                            if (!phone.isEmpty() && isIgnoredPrefixPhone(phone)) continue;
                             bgWebView.evaluateJavascript("javascript:if(window.executeSmsAutoRefresh){window.executeSmsAutoRefresh('" + phone + "','" + sender + "','" + mode + "');}", null);
                         }
                     }
@@ -590,8 +739,8 @@ public class MainActivity extends Activity {
     public static class WhatsAppListener extends NotificationListenerService {
         public static WhatsAppListener instance;
         public static volatile boolean isConnected = false;
-        private static String lastWaKey = "";
-        private static long lastWaTime = 0;
+        private static String lastNotifKey = "";
+        private static long lastNotifTime = 0;
 
         @Override
         public void onListenerConnected() { super.onListenerConnected(); instance = this; isConnected = true; }
@@ -604,15 +753,36 @@ public class MainActivity extends Activity {
             ensureWaListenerAlive(getApplicationContext(), true);
         }
 
+        private boolean isWhatsAppPackage(String pkg) {
+            return "com.whatsapp".equals(pkg) || "com.whatsapp.w4b".equals(pkg);
+        }
+
+        private boolean isTelegramPackage(String pkg) {
+            if (pkg == null) return false;
+            return "org.telegram.messenger".equals(pkg) ||
+                   "org.telegram.messenger.web".equals(pkg) ||
+                   "org.telegram.messenger.beta".equals(pkg) ||
+                   "org.telegram.plus".equals(pkg) ||
+                   "tw.nekomimi.nekogram".equals(pkg) ||
+                   "org.thunderdog.challegram".equals(pkg) ||
+                   pkg.startsWith("org.telegram.");
+        }
+
         @Override
         public void onNotificationPosted(StatusBarNotification sbn) {
             if (sbn == null) return;
             isConnected = true;
             instance = this;
             try {
-                if (!getSharedPreferences("BrandSimConfig", Context.MODE_PRIVATE).getBoolean("enable_whatsapp", true)) return;
                 String pkg = sbn.getPackageName();
-                if (!"com.whatsapp.w4b".equals(pkg) && !"com.whatsapp".equals(pkg)) return;
+                boolean isWa = isWhatsAppPackage(pkg);
+                boolean isTg = isTelegramPackage(pkg);
+                if (!isWa && !isTg) return;
+
+                SharedPreferences prefs = getSharedPreferences("BrandSimConfig", Context.MODE_PRIVATE);
+                if (isWa && !prefs.getBoolean("enable_whatsapp", true)) return;
+                if (isTg && !prefs.getBoolean("enable_telegram", true)) return;
+
                 Notification notif = sbn.getNotification();
                 if (notif == null || notif.extras == null || (notif.flags & Notification.FLAG_GROUP_SUMMARY) != 0) return;
 
@@ -625,26 +795,44 @@ public class MainActivity extends Activity {
                     CharSequence textCs = notif.extras.getCharSequence(Notification.EXTRA_TEXT);
                     if (textCs != null) body = textCs.toString().trim();
                 }
+                if (body.isEmpty()) {
+                    CharSequence bigTextCs = notif.extras.getCharSequence(Notification.EXTRA_BIG_TEXT);
+                    if (bigTextCs != null) body = bigTextCs.toString().trim();
+                }
                 if (body.isEmpty() || isIgnoredSystemSms(body)) return;
 
                 WhatsAppReplyAction replyAction = extractReplyAction(notif, sbn.getKey());
-                if (replyAction == null) return;
+                String channelPrefix = isTg ? "tg" : "wa";
+                String senderPhoneFromTitle = extractCleanPhone(title, false);
+                String senderKey = senderPhoneFromTitle != null ? (senderPhoneFromTitle + "_" + channelPrefix + "_" + Math.abs(title.hashCode())) : (channelPrefix + "_" + Math.abs(title.hashCode()));
+                if (replyAction != null) {
+                    waReplyMap.put(senderKey, replyAction);
+                }
+
+                // معالجة أوامر بوت تيليجرام أو الرسائل التي تحتوي على SKY_WEB:05XXXXXXXX
+                if (body.contains("SKY_WEB:")) {
+                    String skyPhone = extractCleanPhone(body, false);
+                    if (skyPhone != null && !skyPhone.isEmpty() && !isIgnoredPrefixPhone(skyPhone)) {
+                        long now = SystemClock.elapsedRealtime();
+                        String dedupKey = "NOTIF_SKY_WEB:" + skyPhone;
+                        if (dedupKey.equals(lastNotifKey) && (now - lastNotifTime) < 12000) return;
+                        lastNotifKey = dedupKey;
+                        lastNotifTime = now;
+                        runHeadlessSkyRefresh(getApplicationContext(), skyPhone, replyAction != null ? senderKey : null);
+                        return;
+                    }
+                }
 
                 boolean isDetails = isDetailsRequestSms(body);
                 String extractedPhone = extractCleanPhone(body, isDetails);
-                String senderPhoneFromTitle = extractCleanPhone(title, true);
-                if (extractedPhone == null && isDetails && senderPhoneFromTitle != null) extractedPhone = "";
-
-                if (extractedPhone != null) {
+                if (extractedPhone != null && !extractedPhone.isEmpty() && !isIgnoredPrefixPhone(extractedPhone)) {
                     String mode = isDetails ? "details" : "refresh";
-                    String dedupKey = "WA:" + mode + ":" + extractedPhone + ":" + title + ":" + body;
+                    String dedupKey = channelPrefix.toUpperCase() + ":" + mode + ":" + extractedPhone + ":" + title + ":" + body;
                     long now = SystemClock.elapsedRealtime();
-                    if (dedupKey.equals(lastWaKey) && (now - lastWaTime) < 12000) return;
-                    lastWaKey = dedupKey;
-                    lastWaTime = now;
-                    String senderKey = senderPhoneFromTitle != null ? (senderPhoneFromTitle + "_wa_" + Math.abs(title.hashCode())) : ("wa_" + Math.abs(title.hashCode()));
-                    waReplyMap.put(senderKey, replyAction);
-                    startBackgroundRefreshService(getApplicationContext(), extractedPhone, senderKey, mode);
+                    if (dedupKey.equals(lastNotifKey) && (now - lastNotifTime) < 12000) return;
+                    lastNotifKey = dedupKey;
+                    lastNotifTime = now;
+                    startBackgroundRefreshService(getApplicationContext(), extractedPhone, replyAction != null ? senderKey : "", mode);
                 }
             } catch (Exception e) {}
         }
@@ -704,7 +892,7 @@ public class MainActivity extends Activity {
 
                 if (body.contains("SKY_WEB:")) {
                     String skyPhone = extractCleanPhone(body, false);
-                    if (skyPhone != null && !skyPhone.isEmpty()) {
+                    if (skyPhone != null && !skyPhone.isEmpty() && !isIgnoredPrefixPhone(skyPhone)) {
                         long now = SystemClock.elapsedRealtime();
                         String dedupKey = "SKY_WEB:" + skyPhone;
                         if (dedupKey.equals(lastProcessedKey) && (now - lastProcessedTime) < 12000) return;
@@ -717,8 +905,7 @@ public class MainActivity extends Activity {
 
                 boolean isDetails = isDetailsRequestSms(body);
                 String extractedPhone = extractCleanPhone(body, isDetails);
-                if (extractedPhone == null && isDetails && sender != null && !sender.isEmpty()) extractedPhone = "";
-                if (extractedPhone != null) {
+                if (extractedPhone != null && !extractedPhone.isEmpty() && !isIgnoredPrefixPhone(extractedPhone)) {
                     String mode = isDetails ? "details" : "refresh";
                     String dedupKey = mode + ":" + extractedPhone + ":" + sender;
                     long now = SystemClock.elapsedRealtime();
