@@ -66,7 +66,7 @@ const NETLIFY_QUERY_URL="https://incredible-crumble-58566c.netlify.app/.netlify/
 const GITHUB_RAW_DB="https://raw.githubusercontent.com/groupahmed2020-byte/BrandSim.com/main/customers.json";
 const i18n={
 ar:{welcome:"مرحباً بك في براند سيم",subtitle:"أدخل رقم الهاتف أو الصق نص الرسالة لإجراء تحديث فوري أو معرفة تاريخ انتهاء الحزمة",label:"رقم الهاتف",placeholder:"05XXXXXXXX",btn:"تحديث الرقم الآن",detailsBtn:"تفاصيل الرقم وتاريخ انتهاء الحزمة",loading:"جاري الفحص...",switchBtn:"עברית",invalidPhone:"يرجى إدخال رقم هاتف صحيح مكون من 10 أرقام ويبدأ بـ 05",notAuthorized:"عذراً، هذا الرقم غير مسجل في منظومة براند سيم (BRAND SIM) ولا يمكن تحديثه.",defaultSuccess:"تم إرسال طلب تحديث وتنشيط الرقم بنجاح!",defaultError:"تعذر تحديث الرقم حالياً، يرجى التأكد من الرقم أو المحاولة لاحقاً."},
-he:{welcome:"ברוך הבא ל-BRAND SIM",subtitle:"נא להזין מספר טלפון לביצוע רענון או בדיקת תאריך תפוגת חבילה",label:"מספר טלפון",placeholder:"05XXXXXXXX",btn:"רענון מספר כעת",detailsBtn:"פרטי מספר ותאריך תפוגת חבילה",loading:"בודק...",switchBtn:"العربية",invalidPhone:"נא להזין מספר טלפון תקין בן 10 ספרות המתחיל ב-05",notAuthorized:"מספר זה אינו רשום במערכת BRAND SIM.",defaultSuccess:"המספר רוענן בהצלחה!",defaultError:"פעולת הרענון נכשלה, בדוק את המספר או נסה שוב."}
+he:{welcome:"ברוך הבא ל-BRAND SIM",subtitle:"נא להזין מספר טלפון לביצוע רענון أو בדיקת תאריך תפוגת חבילה",label:"מספר טלפון",placeholder:"05XXXXXXXX",btn:"רענון מספר כעת",detailsBtn:"פרטי מספר ותאריך תפוגת חבילה",loading:"בודק...",switchBtn:"العربية",invalidPhone:"נא להזין מספר טלפון תקין בן 10 ספרות המתחיל ב-05",notAuthorized:"מספר זה אינו רשום במערכת BRAND SIM.",defaultSuccess:"המספר רוענן בהצלחה!",defaultError:"פעולת הרענון נכשלה, בדוק את המספר أو نסה شוב."}
 };
 let currentLang=localStorage.getItem("language")||"ar";
 let pastedDetailsIntent=false;
@@ -211,14 +211,10 @@ lines.push("تاريخ انتهاء الحزمة: غير متوفر حالياً
 return lines.join("\n");
 }
 async function refreshViaSky(phone,senderPhone){
-if(window.AndroidBridge&&window.AndroidBridge.autoRefreshSky){
-window.AndroidBridge.autoRefreshSky(phone,senderPhone||"");
-return{ok:true,isSkyApp:true,msg:"جاري تحديث رقم سكاي بالخلفية..."};
-}
-try{await navigator.clipboard.writeText(phone);}catch(e){}
-const win=window.open(SKY_PORTAL_URL,"_blank");
-if(!win)window.location.href=SKY_PORTAL_URL;
-return{ok:true,msg:"تم التحقق من الرقم! جاري تحويلك لبوابة سكاي."};
+  // توجيه رقم سكاي مباشرة للعمل عبر التطبيق بالرابط العميق Deep Link
+  const appUrl = "brandsim://refresh?phone=" + phone;
+  window.location.href = appUrl;
+  return { ok: true, isSkyApp: true, msg: "جاري فتح تطبيق BRAND SIM لتحديث شريحة سكاي تلقائياً..." };
 }
 async function refreshViaAreen(phone){
 for(const url of[AREEN_GAS_URL,LOCAL_PHP_PROXY]){
@@ -287,7 +283,7 @@ else result=await refreshViaLayan(targetSim);
 const finalSiteMsg=(result.msg||"").trim()||(result.ok?t.defaultSuccess:t.defaultError);
 if(result.ok){
 showMessage("success",finalSiteMsg);
-phoneInput.value="";
+if(!result.isSkyApp)phoneInput.value="";
 }else{
 showMessage("warning",finalSiteMsg);
 }
