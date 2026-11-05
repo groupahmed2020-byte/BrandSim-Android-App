@@ -72,7 +72,6 @@ public class MainActivity extends Activity {
         super.onDestroy();
     }
 
-    // دالة الإنعاش التلقائي لخدمة إشعارات واتساب (تحاكي إيقاف وتشغيل المفتاح برمجياً)
     public static void ensureWaListenerAlive(Context ctx, boolean forceToggle) {
         try {
             Context appCtx = ctx.getApplicationContext();
@@ -310,10 +309,12 @@ public class MainActivity extends Activity {
         String numOnly = t.replaceAll("[^0-9]", "");
         if (numOnly.length() >= 9 && numOnly.length() <= 12 && t.length() <= 15) return true;
         if (t.equals("تحديث") || t.equals("تحديث الرقم") || t.equals("ارسال") || t.equals("بحث") || t.equals("sky telecom")) return true;
+        
+        // اعتبار رسائل الطلب المؤقتة كحالة انتظار
+        if (t.contains("تم ارسال طلب") || t.contains("ارسال طلب التحديث") || t.contains("جاري الارسال")) return true;
+
         String[] waitKeywords = {
-            "يستغرق", "استغراق", "دقيق", "دقايق", "تعاون", "انتظار", "انتظر", 
-            "جاري", "معالج", "لحظ", "يرجي", "رجاء", "تحميل",
-            "loading", "please wait", "wait", "processing"
+            "يستغرق", "استغراق", "معالج", "تحميل", "loading", "please wait", "processing"
         };
         for (String kw : waitKeywords) {
             if (t.contains(kw)) return true;
@@ -409,48 +410,41 @@ public class MainActivity extends Activity {
                                         StringBuilder sb = new StringBuilder();
                     sb.append("javascript:(function(){");
                     sb.append("window.__skyTargetPhone='").append(phone).append("';");
-                    sb.append("function isWaitOrStatic(s){");
+                    sb.append("function isIntermediate(s){");
                     sb.append("  if(!s)return true;");
                     sb.append("  var str=String(s).replace(/[\\u064B-\\u065F\\u0670]/g,'').replace(/[إأآا]/g,'ا').replace(/ى/g,'ي').replace(/ة/g,'ه').replace(/[\\s\\-_.,!؟:()]+/g,' ').toLowerCase().trim();");
                     sb.append("  if(str.length<=2)return true;");
                     sb.append("  var numOnly=str.replace(/[^0-9]/g,'');");
                     sb.append("  if(numOnly===(window.__skyTargetPhone||'').replace(/[^0-9]/g,'')||(numOnly.length>=9&&numOnly.length<=12&&str.length<=15))return true;");
                     sb.append("  if(str==='تحديث'||str==='تحديث الرقم'||str==='ارسال'||str==='إرسال'||str==='بحث'||str==='sky telecom')return true;");
-                    sb.append("  var waitKeywords=['يستغرق','استغراق','دقيق','دقايق','تعاون','انتظار','انتظر','جاري','معالج','لحظ','يرجي','رجاء','تحميل','loading','please wait','wait','processing'];");
+                    sb.append("  if(str.indexOf('تم ارسال طلب')!==-1||str.indexOf('ارسال طلب التحديث')!==-1||str.indexOf('جاري الارسال')!==-1)return true;");
+                    sb.append("  var waitKeywords=['يستغرق','استغراق','معالج','تحميل','loading','please wait','processing'];");
                     sb.append("  for(var i=0;i<waitKeywords.length;i++){if(str.indexOf(waitKeywords[i])!==-1)return true;}");
                     sb.append("  return false;");
                     sb.append("}");
-                    sb.append("function parseSkyResp(txt){");
-                    sb.append("  if(!txt)return '';");
-                    sb.append("  try{");
-                    sb.append("    var j=JSON.parse(txt);");
-                    sb.append("    var cand=typeof j==='string'?j:(j.message||j.Message||j.msg||j.Msg||j.result||j.title||j.error||j.ErrorMessage||j.data||'');");
-                    sb.append("    if(typeof cand==='string'&&!isWaitOrStatic(cand))return cand.trim();");
-                    sb.append("  }catch(e){}");
-                    sb.append("  var s=String(txt).replace(/^[\\\"\\s]+|[\\\"\\s]+$/g,'').trim();");
-                    sb.append("  return (s.length>2&&s.length<300&&!s.startsWith('<')&&!isWaitOrStatic(s))?s:'';");
+                    sb.append("function cleanBoxLines(el){");
+                    sb.append("  if(!el)return '';");
+                    sb.append("  var lines=(el.innerText||el.textContent||'').split(String.fromCharCode(10)).map(function(x){return x.trim();}).filter(function(x){return x.length>0&&x!=='OK'&&x!=='موافق'&&x!=='إلغاء'&&x!=='الغاء';});");
+                    sb.append("  return lines.join(' - ');");
                     sb.append("}");
-                    sb.append("window.alert=function(m){if(m&&!isWaitOrStatic(m))window.SkyBridge.onSkyResult(String(m).trim());};");
-                    sb.append("if(window.Swal&&window.Swal.fire){var oldFire=window.Swal.fire;window.Swal.fire=function(){try{var a=arguments[0];var txt=typeof a==='string'?a:(a?(a.title||'')+' '+(a.text||a.html||''):'');if(txt&&!isWaitOrStatic(txt)){var cleanTxt=txt.replace(/<[^>]*>/g,' ').replace(/\\s+/g,' ').trim();window.SkyBridge.onSkyResult(cleanTxt);}}catch(e){}return oldFire.apply(this,arguments);};}");
-                    sb.append("if(window.swal){var oldSwal=window.swal;window.swal=function(){try{var a=arguments[0];var txt=typeof a==='string'?a:(a?(a.title||'')+' '+(a.text||''):'');if(txt&&!isWaitOrStatic(txt)){var cleanTxt=txt.replace(/<[^>]*>/g,' ').replace(/\\s+/g,' ').trim();window.SkyBridge.onSkyResult(cleanTxt);}}catch(e){}return oldSwal.apply(this,arguments);};}");
-                    sb.append("if(window.fetch&&!window.__fetchHooked){window.__fetchHooked=true;var origFetch=window.fetch;window.fetch=function(){return origFetch.apply(this,arguments).then(function(r){try{r.clone().text().then(function(t){var m=parseSkyResp(t);if(m)window.SkyBridge.onSkyResult(m);});}catch(e){}return r;});};}");
-                    sb.append("if(window.XMLHttpRequest&&!window.__xhrHooked){window.__xhrHooked=true;var origSend=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.send=function(){this.addEventListener('load',function(){try{var m=parseSkyResp(this.responseText);if(m)window.SkyBridge.onSkyResult(m);}catch(e){}});return origSend.apply(this,arguments);};}");
                     sb.append("function checkDomResult(){");
-                    sb.append("  var popups=document.querySelectorAll('.swal2-popup,.modal-content,.modal-dialog,.alert,[role=\\'alert\\'],#result,.result,#message,.message');");
-                    sb.append("  for(var i=0;i<popups.length;i++){");
-                    sb.append("    var p=popups[i];");
+                    sb.append("  var boxes=document.querySelectorAll('.swal2-popup,.modal-content,.modal-dialog,.alert,[role=\\'alert\\'],#result,.result,#message,.message,div[class*=\\'alert\\'],div[class*=\\'result\\']');");
+                    sb.append("  for(var i=0;i<boxes.length;i++){");
+                    sb.append("    var p=boxes[i];");
                     sb.append("    if(p.offsetParent===null&&p.offsetWidth===0&&p.offsetHeight===0)continue;");
-                    sb.append("    var fullText=(p.innerText||p.textContent||'').trim();");
-                    sb.append("    if(!fullText||isWaitOrStatic(fullText))continue;");
-                    sb.append("    var lines=fullText.split(String.fromCharCode(10)).map(function(x){return x.trim();}).filter(function(x){return x.length>2&&!isWaitOrStatic(x)&&x!=='OK'&&x!=='موافق'&&x!=='إلغاء'&&x!=='الغاء';});");
-                    sb.append("    if(lines.length>0){window.SkyBridge.onSkyResult(lines.join(' - '));return true;}");
+                    sb.append("    var fullCombined=cleanBoxLines(p);");
+                    sb.append("    if(!fullCombined)continue;");
+                    sb.append("    if(isIntermediate(fullCombined))continue;");
+                    sb.append("    if(fullCombined.indexOf('فشل')!==-1||fullCombined.indexOf('تم التحديث')!==-1||fullCombined.indexOf('بنجاح')!==-1||fullCombined.indexOf('خطأ')!==-1){");
+                    sb.append("      window.SkyBridge.onSkyResult(fullCombined);");
+                    sb.append("      return true;");
+                    sb.append("    }");
                     sb.append("  }");
                     sb.append("  return false;");
                     sb.append("}");
                     sb.append("try{var mo=new MutationObserver(function(){checkDomResult();});mo.observe(document.body||document.documentElement,{childList:true,subtree:true,characterData:true});}catch(e){}");
                     sb.append("var inp=document.querySelector('input[type=\\'tel\\'],input[type=\\'text\\'],input[type=\\'number\\'],input:not([type=\\'hidden\\'])');");
                     sb.append("if(inp){");
-                    sb.append("  var initialLines=(document.body.innerText||'').split(String.fromCharCode(10)).map(function(x){return x.trim();}).filter(Boolean);");
                     sb.append("  inp.focus();");
                     sb.append("  Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set.call(inp,window.__skyTargetPhone);");
                     sb.append("  inp.dispatchEvent(new Event('input',{bubbles:true}));");
@@ -462,8 +456,6 @@ public class MainActivity extends Activity {
                     sb.append("    var checkCount=0,msgTimer=setInterval(function(){");
                     sb.append("      checkCount++;");
                     sb.append("      if(checkDomResult()){clearInterval(msgTimer);return;}");
-                    sb.append("      var lines=(document.body.innerText||'').split(String.fromCharCode(10)).map(function(x){return x.trim();}).filter(function(x){return x.length>2&&initialLines.indexOf(x)===-1&&!isWaitOrStatic(x);});");
-                    sb.append("      if(lines.length>0){clearInterval(msgTimer);window.SkyBridge.onSkyResult(lines[lines.length-1]);return;}");
                     sb.append("      if(checkCount>400){clearInterval(msgTimer);}");
                     sb.append("    },500);");
                     sb.append("  },600);");
@@ -551,7 +543,7 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 ensureWaListenerAlive(getApplicationContext(), false);
-                watchdogHandler.postDelayed(this, 120000); // فحص كل دقيقتين
+                watchdogHandler.postDelayed(this, 120000);
             }
         };
 
@@ -741,7 +733,7 @@ public class MainActivity extends Activity {
                     long now = SystemClock.elapsedRealtime();
                     if (dedupKey.equals(lastWaKey) && (now - lastWaTime) < 12000) return;
                     lastWaKey = dedupKey;
-                                        lastWaTime = now;
+                    lastWaTime = now;
 
                     String senderKey;
                     if (senderPhoneFromTitle != null) {
@@ -788,7 +780,7 @@ public class MainActivity extends Activity {
                 if (Intent.ACTION_BOOT_COMPLETED.equals(action) || Intent.ACTION_MY_PACKAGE_REPLACED.equals(action) || "com.brandsim.refresh.RESTART_SERVICE".equals(action)) {
                     ensureWaListenerAlive(context, true);
                     startBackgroundRefreshService(context, null, null, null);
-                    return;
+                                  return;
                 }
 
                 SharedPreferences sp = context.getSharedPreferences("BrandSimConfig", Context.MODE_PRIVATE);
