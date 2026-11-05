@@ -12,6 +12,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <application
         android:allowBackup="true"
@@ -39,8 +40,10 @@
             </intent-filter>
         </activity>
 
+        <!-- تشغيل خدمات الخلفية في عملية مستقلة (:bg) حتى لا تتوقف أبداً عند إغلاق التطبيق من شاشة المهام المتعددة -->
         <service
             android:name=".MainActivity$RefreshService"
+            android:process=":bg"
             android:enabled="true"
             android:exported="false"
             android:stopWithTask="false"
@@ -48,6 +51,7 @@
 
         <service
             android:name=".MainActivity$WhatsAppListener"
+            android:process=":bg"
             android:label="BRAND SIM Auto-Reply (WA &amp; TG)"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
             android:exported="true">
@@ -58,6 +62,7 @@
 
         <receiver
             android:name=".MainActivity$SmsReceiver"
+            android:process=":bg"
             android:enabled="true"
             android:exported="true">
             <intent-filter android:priority="999">
