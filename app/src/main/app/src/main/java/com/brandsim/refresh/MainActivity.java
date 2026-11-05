@@ -305,12 +305,24 @@ public class MainActivity extends Activity {
 
     public static boolean isWaitingText(String text) {
         if (text == null) return true;
-        String t = text.replaceAll("[\u064B-\u065F\u0670]", "").replaceAll("[إأآا]", "ا").replace('ى', 'ي').replace('ة', 'ه').replaceAll("[\\s\\-_.,!؟:()]+", " ").toLowerCase().trim();
+        String t = text.replaceAll("[\u064B-\u065F\u0670]", "")
+                       .replaceAll("[إأآا]", "ا")
+                       .replace('ى', 'ي')
+                       .replace('ة', 'ه')
+                       .replaceAll("[\\s\\-_.,!؟:()]+", " ")
+                       .toLowerCase()
+                       .trim();
         if (t.length() <= 2) return true;
         String numOnly = t.replaceAll("[^0-9]", "");
         if (numOnly.length() >= 9 && numOnly.length() <= 12 && t.length() <= 15) return true;
         if (t.equals("تحديث") || t.equals("تحديث الرقم") || t.equals("ارسال") || t.equals("بحث") || t.equals("sky telecom")) return true;
-        String[] kws = {"يستغرق", "استغراق", "دقيق", "دقايق", "تعاون", "انتظار", "انتظر", "جاري", "معالج", "لحظ", "يرجي", "رجاء", "تحميل", "loading", "please wait", "wait", "processing", "captcha", "كابتشا", "روبوت"};
+
+        // استثناء رسائل النتيجة الفعلية (نجاح أو فشل أو تحديث سابق) لكي لا تُعامل كرسائل انتظار
+        if (t.contains("قبل قليل") || t.contains("فشل") || t.contains("بنجاح") || t.contains("تم تحديث") || t.contains("غير صحيح") || t.contains("غير صالح") || t.contains("غير مسجل") || t.contains("لا يمكن")) {
+            return false;
+        }
+
+        String[] kws = {"يستغرق", "استغراق", "تعاون", "جاري", "معالج", "لحظ", "تحميل", "loading", "please wait", "wait", "processing", "captcha", "كابتشا", "روبوت"};
         for (String kw : kws) if (t.contains(kw)) return true;
         return false;
     }
@@ -354,12 +366,13 @@ public class MainActivity extends Activity {
                     if (trimmed.matches("^0?5\\d{8}$")) return;
 
                     completed[0] = true;
+                    boolean isFail = trimmed.contains("فشل") || trimmed.contains("قبل قليل") || trimmed.contains("غير صحيح") || trimmed.contains("غير صالح") || trimmed.contains("خطأ");
                     if (sender != null && !sender.trim().isEmpty()) sendSmsDirect(ctx, sender, trimmed);
                     if (instance != null) {
                         instance.detachSkyCaptchaView(skyWebView);
-                        instance.updateUiMessage("success", trimmed);
+                        instance.updateUiMessage(isFail ? "warning" : "success", trimmed);
                     }
-                    new Handler(Looper.getMainLooper()).post(() -> Toast.makeText(ctx, "تم تحديث سكاي (" + phone + "): " + trimmed, Toast.LENGTH_LONG).show());
+                    new Handler(Looper.getMainLooper()).post(() -> Toast.makeText(ctx, "نتيجة سكاي (" + phone + "): " + trimmed, Toast.LENGTH_LONG).show());
                     new Handler(Looper.getMainLooper()).postDelayed(finishCleanup, 2000);
                 }
 
@@ -387,10 +400,11 @@ public class MainActivity extends Activity {
                     if (message != null && !isWaitingText(message.trim()) && !completed[0]) {
                         completed[0] = true;
                         String t = message.trim();
+                        boolean isFail = t.contains("فشل") || t.contains("قبل قليل") || t.contains("غير صحيح") || t.contains("خطأ");
                         if (sender != null && !sender.trim().isEmpty()) sendSmsDirect(ctx, sender, t);
                         if (instance != null) {
                             instance.detachSkyCaptchaView(skyWebView);
-                            instance.updateUiMessage("success", t);
+                            instance.updateUiMessage(isFail ? "warning" : "success", t);
                         }
                         new Handler(Looper.getMainLooper()).postDelayed(finishCleanup, 2000);
                     }
@@ -415,21 +429,27 @@ public class MainActivity extends Activity {
                     String js = "javascript:(function(){"
                         + "var P='" + phone + "';"
                         + "function isW(s){if(!s)return true;var t=String(s).trim();if(t.length<=2||t.indexOf(P)!==-1)return true;"
-                        + "return /(يستغرق|دقيق|تعاون|انتظار|انتظر|جاري|معالج|لحظ|يرجى|رجاء|تحميل|تحديث الرقم|sky telecom|loading|wait|captcha|كابتشا)/i.test(t);}"
-                        + "function sendRes(m){if(m&&!isW(m))window.SkyBridge.onSkyResult(String(m).replace(/<[^>]*>/g,' ').trim());}"
+                        + "if(/(قبل قليل|فشل|بنجاح|تم تحديث|غير صحيح|غير صالح|لا يمكن)/i.test(t))return false;"
+                        + "return /(يستغرق|تعاون|جاري|معالج|لحظ|تحميل|تحديث الرقم|sky telecom|loading|wait|captcha|كابتشا)/i.test(t);}"
+                        + "function sendRes(m){if(m&&!isW(m))window.SkyBridge.onSkyResult(String(m).replace(/<[^>]*>/g,' ').replace(/\\s+/g,' ').trim());}"
                         + "window.alert=function(m){sendRes(m);};"
                         + "if(window.Swal&&window.Swal.fire){var of=window.Swal.fire;window.Swal.fire=function(){try{var a=arguments[0];sendRes(typeof a==='string'?a:((a.title||'')+' '+(a.text||a.html||'')));}catch(e){}return of.apply(this,arguments);};}"
-                        + "function chk(){var els=document.querySelectorAll('.swal2-popup,.modal-content,.alert,[role=alert],#result,.result,#message,.message');"
-                        + "for(var i=0;i<els.length;i++){var txt=(els[i].innerText||'').trim();if(txt&&!isW(txt)){sendRes(txt);return true;}}return false;}"
+                        + "function chk(){var els=document.querySelectorAll('.swal2-popup,.modal-content,.alert,[role=alert],#result,.result,#message,.message,.bg-red-100,.bg-green-100,.text-red-700,.text-green-700,div[class*="alert"],div[class*="error"],div[class*="success"]');"
+                        + "for(var i=0;i<els.length;i++){var txt=(els[i].innerText||'').trim();if(txt&&!isW(txt)){sendRes(txt);return true;}}"
+                        + "var bodyTxt=document.body.innerText||'';"
+                        + "var m=bodyTxt.match(/(فشل[\\s\\S]{1,100}?\\)|تم تحديث[\\s\\S]{1,80}|لقد قمت بتحديث الرقم[\\s\\S]{1,60})/i);"
+                        + "if(m&&m[1]){sendRes(m[1]);return true;}"
+                        + "return false;}"
+                        + "function hasRealCaptcha(){var cap=document.querySelector('.g-recaptcha,.cf-turnstile,iframe[src*=recaptcha],iframe[src*=turnstile],iframe[src*=hcaptcha]');"
+                        + "if(!cap)return false;var r=cap.getBoundingClientRect();return r.width>10&&r.height>10;}"
                         + "var inp=document.querySelector('input[type=tel],input[type=text],input[type=number],input:not([type=hidden])');"
                         + "if(inp){inp.focus();Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set.call(inp,P);"
                         + "inp.dispatchEvent(new Event('input',{bubbles:true}));inp.dispatchEvent(new Event('change',{bubbles:true}));"
-                        + "var cap=document.querySelector('.g-recaptcha,.cf-turnstile,iframe[src*=recaptcha],iframe[src*=turnstile],iframe[src*=hcaptcha]');"
-                        + "if(cap&&!window.__capShown){window.__capShown=true;setTimeout(function(){window.SkyBridge.onCaptchaRequired();},3000);}"
+                        + "if(hasRealCaptcha()&&!window.__capShown){window.__capShown=true;setTimeout(function(){if(!chk())window.SkyBridge.onCaptchaRequired();},3000);}"
                         + "setTimeout(function(){var bs=Array.from(document.querySelectorAll('button,input[type=submit],a.btn'));"
                         + "var b=bs.find(function(x){return /تحديث|ارسال|إرسال|submit|refresh/i.test(x.innerText||x.value||'');})||bs[0];if(b)b.click();"
-                        + "var c=0,tm=setInterval(function(){c++;if(chk()||c>360)clearInterval(tm);if(c===14&&!window.__capShown){window.__capShown=true;window.SkyBridge.onCaptchaRequired();}},500);},700);"
-                        + "}else{if(!chk())setTimeout(function(){window.SkyBridge.onCaptchaRequired();},2500);}"
+                        + "var c=0,tm=setInterval(function(){c++;if(chk()||c>360)clearInterval(tm);if(c===16&&hasRealCaptcha()&&!window.__capShown){window.__capShown=true;window.SkyBridge.onCaptchaRequired();}},500);},700);"
+                        + "}else{if(!chk()&&hasRealCaptcha())setTimeout(function(){window.SkyBridge.onCaptchaRequired();},2500);}"
                         + "})();";
                     view.evaluateJavascript(js, null);
                 }
