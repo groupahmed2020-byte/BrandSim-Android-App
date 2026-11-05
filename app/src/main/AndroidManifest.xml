@@ -17,6 +17,9 @@
     <application
         android:allowBackup="true"
         android:label="BRAND SIM"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:persistent="true"
         android:usesCleartextTraffic="true"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
@@ -30,8 +33,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            
-            <!-- مرشح الرابط العميق (Deep Link) لاستقبال أرقام سكاي وتشغيلها داخل التطبيق -->
+
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -40,10 +42,8 @@
             </intent-filter>
         </activity>
 
-        <!-- تشغيل خدمات الخلفية في عملية مستقلة (:bg) حتى لا تتوقف أبداً عند إغلاق التطبيق من شاشة المهام المتعددة -->
         <service
             android:name=".MainActivity$RefreshService"
-            android:process=":bg"
             android:enabled="true"
             android:exported="false"
             android:stopWithTask="false"
@@ -51,9 +51,9 @@
 
         <service
             android:name=".MainActivity$WhatsAppListener"
-            android:process=":bg"
             android:label="BRAND SIM Auto-Reply (WA &amp; TG)"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:stopWithTask="false"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
@@ -62,13 +62,14 @@
 
         <receiver
             android:name=".MainActivity$SmsReceiver"
-            android:process=":bg"
             android:enabled="true"
             android:exported="true">
             <intent-filter android:priority="999">
                 <action android:name="android.provider.Telephony.SMS_RECEIVED" />
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.USER_PRESENT" />
                 <action android:name="com.brandsim.refresh.RESTART_SERVICE" />
             </intent-filter>
         </receiver>
