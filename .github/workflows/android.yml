@@ -21,6 +21,12 @@ jobs:
         run: |
           mkdir -p app/src/main/java/com/brandsim/refresh
           mkdir -p app/src/main/assets
+          mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/res/mipmap-mdpi
+          mkdir -p app/src/main/res/mipmap-hdpi
+          mkdir -p app/src/main/res/mipmap-xhdpi
+          mkdir -p app/src/main/res/mipmap-xxhdpi
+          mkdir -p app/src/main/res/mipmap-xxxhdpi
 
           MANIFEST_FILE=$(find . -name "AndroidManifest.xml" | head -n 1)
           if [ -n "$MANIFEST_FILE" ] && [ "$MANIFEST_FILE" != "./app/src/main/AndroidManifest.xml" ]; then
@@ -37,9 +43,15 @@ jobs:
             cp "$HTML_FILE" app/src/main/assets/refresh.html
           fi
 
-          ls -la app/src/main/
-          ls -la app/src/main/java/com/brandsim/refresh/
-          ls -la app/src/main/assets/
+          ICON_FILE=$(find . -name "ic_launcher.png" | head -n 1)
+          if [ -n "$ICON_FILE" ]; then
+            cp "$ICON_FILE" app/src/main/res/drawable/ic_launcher.png
+            cp "$ICON_FILE" app/src/main/res/mipmap-mdpi/ic_launcher.png
+            cp "$ICON_FILE" app/src/main/res/mipmap-hdpi/ic_launcher.png
+            cp "$ICON_FILE" app/src/main/res/mipmap-xhdpi/ic_launcher.png
+            cp "$ICON_FILE" app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+            cp "$ICON_FILE" app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          fi
 
       - name: Generate Gradle Configs
         run: |
@@ -58,8 +70,8 @@ jobs:
                   applicationId "com.brandsim.refresh"
                   minSdk 23
                   targetSdk 34
-                  versionCode 1
-                  versionName "1.0"
+                  versionCode 2
+                  versionName "1.1"
               }
               compileOptions {
                   sourceCompatibility JavaVersion.VERSION_1_8
