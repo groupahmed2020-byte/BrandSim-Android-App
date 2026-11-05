@@ -146,33 +146,41 @@ async function findCustomerInBackend(cleanPhone){
 
 async function sendToTelegramOnce(cmdText){
   const workerUrl=`${SKY_TELEGRAM_WORKER_URL}?text=${encodeURIComponent(cmdText)}`;
-  
   try{
     const res=await fetch(workerUrl,{method:"GET"});
     if(res&&res.ok)return true;
   }catch(e){}
-
   try{
     await fetch(workerUrl,{method:"GET",mode:"no-cors",cache:"no-store"});
     return true;
   }catch(e){}
-
   return false;
 }
 
+function isRunningOnExternalWeb(){
+  if(window.AndroidBridge)return false;
+  const proto=String(window.location.protocol||"").toLowerCase();
+  const host=String(window.location.hostname||"").toLowerCase();
+  if(proto==="file:")return false;
+  return host.includes("brand-sim.com")||host.includes("github.io")||proto==="https:"||proto==="http:";
+}
+
 async function refreshViaSky(phone,senderPhone=""){
-  const now=Date.now();
-  const cmdText="SKY_WEB:"+phone;
-
-  if(lastSkySentPhone!==phone||(now-lastSkySentTime)>=15000){
-    lastSkySentPhone=phone;
-    lastSkySentTime=now;
-    await sendToTelegramOnce(cmdText);
-  }
-
+  // إذا كان التشغيل داخل تطبيق الأندرويد (سواء SMS أو واتساب أو يدوي من التطبيق): لا ترسل لتيليجرام أبداً، بل حدث مباشرة بالخلفية
   if(window.AndroidBridge&&typeof window.AndroidBridge.autoRefreshSky==="function"){
     window.AndroidBridge.autoRefreshSky(phone,senderPhone||"");
     return{ok:true,isSkyApp:true,msg:"⏳ جاري تحديث شريحة سكاي تلقائياً بالخلفية..."};
+  }
+
+  // فقط إذا كان الزبون يحدث من موقع الويب (brand-sim.com / github.io) وليس هناك AndroidBridge ولا senderPhone
+  if(!senderPhone&&isRunningOnExternalWeb()){
+    const now=Date.now();
+    const cmdText="SKY_WEB:"+phone;
+    if(lastSkySentPhone!==phone||(now-lastSkySentTime)>=15000){
+      lastSkySentPhone=phone;
+      lastSkySentTime=now;
+      await sendToTelegramOnce(cmdText);
+    }
   }
 
   return{ok:true,msg:"✅ تم إرسال طلب تحديث رقمك إلى النظام بنجاح! سيتم تنشيط الشريحة خلال لحظات."};
@@ -268,8 +276,16 @@ async function executeRefresh(rawNumber,senderPhone=""){
   }
 }
 
+const bgSmsQueue=[];
+async function processBgSmsQueue(){
+  if(isRefreshing||bgSmsQueue.length===0)return;
+  const next=bgSmsQueue.shift();
+  await executeRefresh(next.phone,next.sender);
+  if(bgSmsQueue.length>0)setTimeout(processBgSmsQueue,400);
+}
 window.executeSmsAutoRefresh=function(targetPhone,senderPhone,mode){
-  executeRefresh(targetPhone,senderPhone);
+  bgSmsQueue.push({phone:targetPhone,sender:senderPhone||"",mode:mode||"refresh"});
+  processBgSmsQueue();
 };
 phoneInput.addEventListener("input",e=>{const n=normalizePhoneNumber(e.target.value);if(e.target.value!==n)e.target.value=n;});
 langBtn.addEventListener("click",()=>{alertBox.style.display="none";applyLanguage(currentLang==="ar"?"he":"ar");});
