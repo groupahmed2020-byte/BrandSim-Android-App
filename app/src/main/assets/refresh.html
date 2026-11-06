@@ -66,6 +66,71 @@ const AYLOL_WORKER_URL="https://steep-shadow-66a0.groupahmed2020.workers.dev/";
 const NETLIFY_QUERY_URL="https://incredible-crumble-58566c.netlify.app/.netlify/functions/query";
 const SKY_COOLDOWN_MS=20*60*1000; // 20 دقيقة
 
+// إعدادات تخزين وقت التحديث على GitHub (ملف sky_cooldowns.json في المستودع) + المزامنة السحابية
+const GITHUB_COOLDOWN_CONFIG={
+  owner:"groupahmed2020-byte",
+  repo:"BrandSim-Android-App",
+  branch:"main",
+  path:"sky_cooldowns.json",
+  token:"" // في حال استخدام GitHub API مباشر يوضع التوكن أو يتم التخزين عبر الـ Worker تلقائياً
+};
+
+async function fetchCloudSkyCooldown(cleanPhone){
+  // 1. فحص عبر Worker السحابي المشترك
+  try{
+    const wRes=await fetch(`${SKY_TELEGRAM_WORKER_URL}?action=check_cooldown&phone=${encodeURIComponent(cleanPhone)}&t=${Date.now()}`,{method:"GET",cache:"no-store"});
+    if(wRes&&wRes.ok){
+      const wData=await wRes.json();
+      if(wData&&wData.lastRefreshed){
+        const ts=Number(wData.lastRefreshed);
+        if(ts>0)return ts;
+      }
+    }
+  }catch(e){}
+  // 2. فحص ملف sky_cooldowns.json من GitHub مباشرة
+  try{
+    const rawUrl=`https://raw.githubusercontent.com/${GITHUB_COOLDOWN_CONFIG.owner}/${GITHUB_COOLDOWN_CONFIG.repo}/${GITHUB_COOLDOWN_CONFIG.branch}/${GITHUB_COOLDOWN_CONFIG.path}?t=${Date.now()}`;
+    const gRes=await fetch(rawUrl,{method:"GET",cache:"no-store"});
+    if(gRes&&gRes.ok){
+      const gData=await gRes.json();
+      if(gData&&gData[cleanPhone]){
+        const ts=Number(gData[cleanPhone].timestamp||gData[cleanPhone]);
+        if(ts>0)return ts;
+      }
+    }
+  }catch(e){}
+  return 0;
+}
+
+async function saveCloudSkyCooldown(cleanPhone,timestamp){
+  // 1. إرسال وقت التحديث إلى Worker لتخزينه على GitHub / KV السحابي
+  try{
+    fetch(`${SKY_TELEGRAM_WORKER_URL}?action=save_cooldown&phone=${encodeURIComponent(cleanPhone)}&timestamp=${timestamp}`,{method:"GET",mode:"no-cors",cache:"no-store"}).catch(()=>{});
+  }catch(e){}
+  // 2. إذا كان هناك GitHub Token مضاف أو محفوظ، يقوم بتحديث ملف sky_cooldowns.json مباشرة على GitHub API
+  try{
+    const ghToken=GITHUB_COOLDOWN_CONFIG.token||localStorage.getItem("gh_sync_token")||"";
+    if(ghToken){
+      const apiUrl=`https://api.github.com/repos/${GITHUB_COOLDOWN_CONFIG.owner}/${GITHUB_COOLDOWN_CONFIG.repo}/contents/${GITHUB_COOLDOWN_CONFIG.path}`;
+      const headers={"Authorization":`Bearer ${ghToken}`,"Accept":"application/vnd.github+json","Content-Type":"application/json"};
+      let currentObj={};
+      let sha=null;
+      const getRes=await fetch(apiUrl,{headers,cache:"no-store"});
+      if(getRes.ok){
+        const fileInfo=await getRes.json();
+        sha=fileInfo.sha;
+        try{currentObj=JSON.parse(decodeURIComponent(escape(atob(fileInfo.content.replace(/\s/g,"")))));}catch(_){}
+      }
+      currentObj[cleanPhone]={timestamp:timestamp,updatedAt:new Date(timestamp).toISOString()};
+      const encoded=btoa(unescape(encodeURIComponent(JSON.stringify(currentObj,null,2))));
+      const bodyObj={message:`Update cooldown for ${cleanPhone}`,content:encoded,branch:GITHUB_COOLDOWN_CONFIG.branch};
+      if(sha)bodyObj.sha=sha;
+      await fetch(apiUrl,{method:"PUT",headers,body:JSON.stringify(bodyObj)});
+    }
+  }catch(e){}
+}
+
+
 const i18n=Object.freeze({
   ar:Object.freeze({welcome:"مرحباً بك في براند سيم",subtitle:"أدخل رقم الهاتف لإجراء تحديث وتنشيط فوري للشريحة",label:"📱 رقم الهاتف:",placeholder:"05XXXXXXXX",btn:"تحديث الرقم الآن",loading:"جاري الفحص والتحديث...",switchBtn:"עברית",invalidPhone:"يرجى إدخال رقم هاتف صحيح مكون من 10 أرقام ويبدأ بـ 05",notAuthorized:"عذراً، هذا الرقم غير مسجل في منظومة براند سيم (BRAND SIM) ولا يمكن تحديثه.",skyExpired:"الرقم منتهي اشتراكه، الرجاء التواصل مع المندوب من أجل التجديد",defaultSuccess:"✅ تم إرسال طلب تحديث وتنشيط الرقم بنجاح!",defaultError:"⚠️ تعذر تحديث الرقم حالياً، يرجى التأكد من الرقم أو المحاولة لاحقاً."}),
   he:Object.freeze({welcome:"ברוך הבא ל-BRAND SIM",subtitle:"נא להזין מספר טלפון כדי לבצע רענון והפעלה לכרטיס ה-SIM",label:"📱 מספר טלפון:",placeholder:"05XXXXXXXX",btn:"רענון מספר כעת",loading:"בודק ומרענן...",switchBtn:"العربية",invalidPhone:"נא להזין מספר טלפון תקין בן 10 ספרות המתחיל ב-05",notAuthorized:"מספר זה אינו רשום במערכת BRAND SIM ולא ניתן לרענן אותו.",skyExpired:"الرقم منتهي اشتراكه، الرجاء التواصل مع المندوب من أجل التجديد",defaultSuccess:"✅ המספר רוענן בהצלחה!",defaultError:"⚠️ פעולת הרענון נכשלה, בדוק את המספר או נסה שוב."})
@@ -79,7 +144,7 @@ let lastSkySentTime=0;
 
 const form=document.getElementById("customer-refresh-number-form"),phoneInput=document.getElementById("customerPhone"),submitBtn=document.getElementById("customSubmitBtn"),btnText=document.getElementById("ui-btn"),alertBox=document.getElementById("alertBox"),langBtn=document.getElementById("langToggleBtn");
 
-function cleanText(s){return String(s||"").replace(/[\u0000-\u001F\u007F-\u009F<>]/g,"").trim().slice(0,380);}
+function cleanText(s){return String(s||"").replace(/Sky\s*Telecom/gi,"BRAND SIM").replace(/SkyTelecom/gi,"BRAND SIM").replace(/سكاي\s*تيليكوم|سكاي\s*تليكوم/g,"BRAND SIM").replace(/[\u0000-\u001F\u007F-\u009F<>]/g,"").trim().slice(0,380);}
 
 function applyLanguage(lang){
   currentLang=lang==="he"?"he":"ar";try{localStorage.setItem("language",currentLang);}catch(e){}
@@ -191,7 +256,9 @@ function checkSkyCooldown(cleanPhone){
 }
 
 function recordSkyCooldown(cleanPhone){
-  try{localStorage.setItem("sky_20m_cd_"+cleanPhone,String(Date.now()));}catch(e){}
+  const nowTs=Date.now();
+  try{localStorage.setItem("sky_20m_cd_"+cleanPhone,String(nowTs));}catch(e){}
+  try{saveCloudSkyCooldown(cleanPhone,nowTs);}catch(e){}
   try{
     if(window.AndroidBridge&&typeof window.AndroidBridge.markSkyRefreshed==="function"){
       window.AndroidBridge.markSkyRefreshed(cleanPhone);
