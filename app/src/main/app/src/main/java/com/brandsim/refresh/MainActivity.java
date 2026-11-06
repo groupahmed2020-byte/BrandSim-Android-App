@@ -31,6 +31,7 @@ public class MainActivity extends Activity {
     public static MainActivity instance;
     public static String lastSentSmsBody = "";
     private static final String SKY_URL = "https://rn.sky-5g.net";
+    private static final long SKY_COOLDOWN_MS = 15L * 60L * 60L * 1000L; // 15 ساعة
     private static boolean webViewDataDirConfigured = false;
     public static final Map<String, WhatsAppReplyAction> waReplyMap = new ConcurrentHashMap<>();
 
@@ -195,9 +196,9 @@ public class MainActivity extends Activity {
         if (intent != null && Intent.ACTION_VIEW.equals(intent.getAction())) {
             Uri data = intent.getData();
             if (data != null && "brandsim".equals(data.getScheme())) {
-                String phone = data.getQueryParameter("phone");
+                String phone = extractCleanPhone(data.getQueryParameter("phone"), false);
                 if (phone != null && !phone.isEmpty() && !isIgnoredPrefixPhone(phone)) {
-                    runHeadlessSkyRefresh(this, phone, null);
+                    runHeadlessSkyRefresh(this, phone, null, "refresh");
                 }
             }
             setIntent(new Intent());
@@ -233,7 +234,6 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         if (instance == this) instance = null;
-        // تنظيف الـ WebView الخاص بالواجهة فقط دون لمس WebView الخلفية (RefreshService.bgWebView)
         try {
             if (mainWebView != null) {
                 if (rootLayout != null) rootLayout.removeView(mainWebView);
@@ -316,7 +316,6 @@ public class MainActivity extends Activity {
             if (phone != null && !phone.isEmpty() && isIgnoredPrefixPhone(phone)) return;
             Context appCtx = context.getApplicationContext();
 
-            // إذا كانت خدمة RefreshService تعمل بالفعل في الذاكرة وجاهزة، نمرر لها الطلب مباشرة وبنفس الوقت نؤكد تشغيلها
             if (phone != null && !phone.isEmpty() && RefreshService.instance != null) {
                 RefreshService.instance.enqueuePhoneRequest(phone, sender != null ? sender : "", mode != null ? mode : "refresh");
             }
@@ -329,7 +328,6 @@ public class MainActivity extends Activity {
             }
             startBackgroundRefreshServiceWithIntent(appCtx, srv);
         } catch (Exception e) {
-            // في حال منع النظام تشغيل الـ Service بالخلفية عند الإغلاق الثاني، ننفذ الفحص مباشرة عبر الـ WebView الاحتياطي السريع
             if (phone != null && !phone.isEmpty()) {
                 RefreshService.runDirectFallbackRefresh(context.getApplicationContext(), phone, sender != null ? sender : "", mode != null ? mode : "refresh");
             }
@@ -467,11 +465,27 @@ public class MainActivity extends Activity {
         return t.contains("حاول الاتصال") || t.contains("اتصال بك") || t.contains("أصبح متاح") ||
                t.contains("متاح حاليا") || t.contains("موجود") || t.contains("غير مسجل في منظومة") ||
                t.contains("قد يستغرق الرد") || t.contains("تاريخ انتهاء الحزمة:") ||
-               t.contains("رسائل جديدة") || t.contains("new messages") || t.contains("جاري فحص");
+               t.contains("تفاصيل اشتراك الرقم") || t.contains("تم تحديث الانترنت") ||
+               t.contains("مرفوض:") || t.contains("رسائل جديدة") || t.contains("new messages") ||
+               t.contains("جاري فحص");
     }
 
     public static boolean isDetailsRequestSms(String rawText) {
-        return rawText != null && Pattern.compile("(تفاصيل|تفصيل|تاريخ|انتهاء|إنتهاء|تنتهي|ينتهي|بتنتهي|بنتهي|حزمة|حزمه|باقة|باقه|متى|موعد|استعلام|إستعلام|صلاحية|صلاحيه|اشتراك|إشتراك|بيانات|معلومات)").matcher(rawText).find();
+        if (rawText == null) return false;
+        return Pattern.compile("(كم ضايل|قديش ضايل|ضايل بالحزم|ضايل بالحزمة|ضايل بالباقة|كم باقي|تفاصيل|تفصيل|تاريخ|انتهاء|إنتهاء|تنتهي|ينتهي|بتنتهي|بنتهي|حزمة|حزمه|باقة|باقه|متى|موعد|استعلام|إستعلام|صلاحية|صلاحيه|اشتراك|إشتراك|بيانات|معلومات)").matcher(rawText).find();
+    }
+
+    public static boolean isWeakNetRequestSms(String rawText) {
+        if (rawText == null) return false;
+        return Pattern.compile("(النت ضعيف|انترنت ضعيف|إنترنت ضعيف|نت ضعيف|النت بطيء|نت بطيء|النت مقطوع|النت فاصل|ما في نت|مافي نت|النت واقف)").matcher(rawText).find();
+    }
+
+    public static String detectMessageMode(String rawText) {
+        if (rawText == null) return "refresh";
+        if (isDetailsRequestSms(rawText)) return "details";
+        if (isWeakNetRequestSms(rawText)) return "weak_net";
+        // يشمل: حدثلي يا ابو احمد، الارسال رايح يا ابو احمد، أو أي رسالة أخرى تحتوي على رقم هاتف
+        return "refresh";
     }
 
     public static boolean isIgnoredPrefixPhone(String phone) {
@@ -483,6 +497,7 @@ public class MainActivity extends Activity {
         return digits.startsWith("059") || digits.startsWith("056");
     }
 
+    // لا يتم التعامل مع أي رسالة لا تحتوي على رقم هاتف صريح بداخل نص الرسالة
     public static String extractCleanPhone(String rawText, boolean allow059ForDetails) {
         if (rawText == null || rawText.isEmpty() || isIgnoredSystemSms(rawText)) return null;
         StringBuilder sb = new StringBuilder();
@@ -495,10 +510,48 @@ public class MainActivity extends Activity {
         Matcher m = Pattern.compile("(?:00972|00970|972|970|0)?(5\\d{8})").matcher(cleaned);
         while (m.find()) {
             String cand = "0" + m.group(1);
-            if (cand.startsWith("059") || cand.startsWith("056")) continue;
+            if (!allow059ForDetails && (cand.startsWith("059") || cand.startsWith("056"))) continue;
             return cand;
         }
         return null;
+    }
+
+    // فحص وتطبيق قيد الـ 15 ساعة لأرقام سكاي
+    public static long getSkyRemainingCooldownMs(Context ctx, String cleanPhone) {
+        if (cleanPhone == null || cleanPhone.isEmpty()) return 0L;
+        try {
+            SharedPreferences prefs = ctx.getApplicationContext().getSharedPreferences("BrandSimSkyCooldowns", Context.MODE_PRIVATE);
+            long lastTime = prefs.getLong("sky_last_" + cleanPhone, 0L);
+            if (lastTime <= 0L) return 0L;
+            long elapsed = System.currentTimeMillis() - lastTime;
+            if (elapsed >= 0L && elapsed < SKY_COOLDOWN_MS) {
+                return SKY_COOLDOWN_MS - elapsed;
+            }
+        } catch (Exception e) {}
+        return 0L;
+    }
+
+    public static void recordSkyRefreshTimestamp(Context ctx, String cleanPhone) {
+        if (cleanPhone == null || cleanPhone.isEmpty()) return;
+        try {
+            SharedPreferences prefs = ctx.getApplicationContext().getSharedPreferences("BrandSimSkyCooldowns", Context.MODE_PRIVATE);
+            prefs.edit().putLong("sky_last_" + cleanPhone, System.currentTimeMillis()).commit();
+        } catch (Exception e) {}
+    }
+
+    public static String formatSkyCooldownMessage(String cleanPhone, long remainingMs) {
+        long totalMinutes = Math.max(1L, (remainingMs + 59999L) / 60000L);
+        long hours = totalMinutes / 60L;
+        long mins = totalMinutes % 60L;
+        String timeStr;
+        if (hours > 0 && mins > 0) {
+            timeStr = hours + " ساعة و " + mins + " دقيقة";
+        } else if (hours > 0) {
+            timeStr = hours + " ساعة";
+        } else {
+            timeStr = mins + " دقيقة";
+        }
+        return "⚠️ عذراً، طلب التحديث للرقم " + cleanPhone + " مرفوض لتكرار الطلب.\nيُسمح بتحديث أرقام سكاي مرة واحدة فقط كل 15 ساعة.\nيرجى المحاولة بعد مرور: " + timeStr + ".";
     }
 
     public static void sendSmsDirect(final Context ctx, final String sender, final String message) {
@@ -564,15 +617,39 @@ public class MainActivity extends Activity {
 
     @SuppressLint("SetJavaScriptEnabled")
     public static void runHeadlessSkyRefresh(final Context ctx, final String phone, final String sender) {
+        runHeadlessSkyRefresh(ctx, phone, sender, "refresh");
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    public static void runHeadlessSkyRefresh(final Context ctx, final String phone, final String sender, final String mode) {
         if (phone == null || isIgnoredPrefixPhone(phone)) return;
+        final String cleanPhone = phone.replaceAll("[^0-9]", "");
+
+        // فحص قيد الـ 15 ساعة لأرقام سكاي قبل إجراء أي طلب
+        long remMs = getSkyRemainingCooldownMs(ctx, cleanPhone);
+        if (remMs > 0L) {
+            String rejectMsg = formatSkyCooldownMessage(cleanPhone, remMs);
+            if (sender != null && !sender.trim().isEmpty()) {
+                sendSmsDirect(ctx, sender, rejectMsg);
+            }
+            if (instance != null) {
+                instance.updateUiMessage("warning", rejectMsg);
+            }
+            new Handler(Looper.getMainLooper()).post(() -> Toast.makeText(ctx, rejectMsg, Toast.LENGTH_LONG).show());
+            return;
+        }
+
         long now = SystemClock.elapsedRealtime();
-        if (phone.equals(lastSkyRunPhone) && (now - lastSkyRunTime) < 10000) return;
-        lastSkyRunPhone = phone;
+        if (cleanPhone.equals(lastSkyRunPhone) && (now - lastSkyRunTime) < 10000) return;
+        lastSkyRunPhone = cleanPhone;
         lastSkyRunTime = now;
+
+        // تسجيل وقت التحديث فوراً لمنع أي طلب مكرر خلال 15 ساعة
+        recordSkyRefreshTimestamp(ctx, cleanPhone);
 
         new Handler(Looper.getMainLooper()).post(() -> {
             ensureWebViewProcessDir(ctx.getApplicationContext());
-            Toast.makeText(ctx, "جاري تحديث سكاي بالخلفية: " + phone, Toast.LENGTH_SHORT).show();
+            Toast.makeText(ctx, "جاري تحديث سكاي بالخلفية: " + cleanPhone, Toast.LENGTH_SHORT).show();
             final WebView skyWebView = new WebView(ctx.getApplicationContext());
             skyWebView.layout(0, 0, 1080, 1920);
             WebSettings ss = skyWebView.getSettings();
@@ -602,17 +679,17 @@ public class MainActivity extends Activity {
                     if (completed[0]) return;
                     String trimmed = skyMsg != null ? skyMsg.trim() : "";
                     if (trimmed.isEmpty() || isWaitingText(trimmed)) return;
-                    String cleanPhone = phone != null ? phone.replaceAll("[^0-9]", "") : "";
                     if (!cleanPhone.isEmpty() && cleanPhone.equals(trimmed.replaceAll("[^0-9]", ""))) return;
                     if (trimmed.matches("^0?5\\d{8}$")) return;
 
                     completed[0] = true;
                     boolean isFail = trimmed.contains("فشل") || trimmed.contains("قبل قليل") || trimmed.contains("غير صحيح") || trimmed.contains("غير صالح") || trimmed.contains("خطأ");
-                    if (sender != null && !sender.trim().isEmpty()) sendSmsDirect(ctx, sender, trimmed);
+                    String outMsg = "weak_net".equals(mode) ? ("تم تحديث الانترنت\n" + trimmed) : trimmed;
+                    if (sender != null && !sender.trim().isEmpty()) sendSmsDirect(ctx, sender, outMsg);
                     if (instance != null) {
-                        instance.updateUiMessage(isFail ? "warning" : "success", trimmed);
+                        instance.updateUiMessage(isFail ? "warning" : "success", outMsg);
                     }
-                    new Handler(Looper.getMainLooper()).post(() -> Toast.makeText(ctx, "نتيجة سكاي (" + phone + "): " + trimmed, Toast.LENGTH_LONG).show());
+                    new Handler(Looper.getMainLooper()).post(() -> Toast.makeText(ctx, "نتيجة سكاي (" + cleanPhone + "): " + outMsg, Toast.LENGTH_LONG).show());
                     new Handler(Looper.getMainLooper()).postDelayed(finishCleanup, 2000);
                 }
 
@@ -628,9 +705,10 @@ public class MainActivity extends Activity {
                         completed[0] = true;
                         String t = message.trim();
                         boolean isFail = t.contains("فشل") || t.contains("قبل قليل") || t.contains("غير صحيح") || t.contains("خطأ");
-                        if (sender != null && !sender.trim().isEmpty()) sendSmsDirect(ctx, sender, t);
+                        String outMsg = "weak_net".equals(mode) ? ("تم تحديث الانترنت\n" + t) : t;
+                        if (sender != null && !sender.trim().isEmpty()) sendSmsDirect(ctx, sender, outMsg);
                         if (instance != null) {
-                            instance.updateUiMessage(isFail ? "warning" : "success", t);
+                            instance.updateUiMessage(isFail ? "warning" : "success", outMsg);
                         }
                         new Handler(Looper.getMainLooper()).postDelayed(finishCleanup, 2000);
                     }
@@ -653,7 +731,7 @@ public class MainActivity extends Activity {
                     super.onPageFinished(view, url);
                     if (completed[0]) return;
                     String js = "javascript:(function(){"
-                        + "var P='" + phone + "';"
+                        + "var P='" + cleanPhone + "';"
                         + "function isW(s){if(!s)return true;var t=String(s).trim();if(t.length<=2||t.indexOf(P)!==-1)return true;"
                         + "if(/(قبل قليل|فشل|تم تحديث|غير صحيح|غير صالح|لا يمكن)/i.test(t))return false;"
                         + "if(/بنجاح/i.test(t)&&!/(يستغرق|انتظار)/i.test(t))return false;"
@@ -692,28 +770,61 @@ public class MainActivity extends Activity {
     public static class WebAppInterface {
         private final Context ctx;
         public WebAppInterface(Context ctx) { this.ctx = ctx; }
+
         @JavascriptInterface
         public void autoRefreshSky(final String phone, final String sender) {
             if (isIgnoredPrefixPhone(phone)) return;
-            runHeadlessSkyRefresh(ctx, phone, sender);
+            runHeadlessSkyRefresh(ctx, phone, sender, "refresh");
         }
+
+        @JavascriptInterface
+        public void autoRefreshSkyWithMode(final String phone, final String sender, final String mode) {
+            if (isIgnoredPrefixPhone(phone)) return;
+            runHeadlessSkyRefresh(ctx, phone, sender, mode != null ? mode : "refresh");
+        }
+
+        @JavascriptInterface
+        public long getSkyCooldownRemainingMs(final String phone) {
+            if (phone == null) return 0L;
+            return getSkyRemainingCooldownMs(ctx, phone.replaceAll("[^0-9]", ""));
+        }
+
+        @JavascriptInterface
+        public String getSkyCooldownRejectMsg(final String phone) {
+            if (phone == null) return "";
+            String clean = phone.replaceAll("[^0-9]", "");
+            long rem = getSkyRemainingCooldownMs(ctx, clean);
+            return rem > 0L ? formatSkyCooldownMessage(clean, rem) : "";
+        }
+
+        @JavascriptInterface
+        public void markSkyRefreshed(final String phone) {
+            if (phone == null) return;
+            recordSkyRefreshTimestamp(ctx, phone.replaceAll("[^0-9]", ""));
+        }
+
         @JavascriptInterface
         public void sendSmsReply(final String sender, final String message) {
             sendSmsDirect(ctx, sender, message);
             if (instance != null) instance.updateUiMessage("success", message);
         }
+
         @JavascriptInterface
         public void setChannelsConfig(boolean enableSms, boolean enableWa) {
             saveAllChannelsState(ctx, enableSms, enableWa, isChannelEnabled(ctx, "enable_telegram"));
         }
+
         @JavascriptInterface
         public void setAllChannelsConfig(boolean enableSms, boolean enableWa, boolean enableTg) {
             saveAllChannelsState(ctx, enableSms, enableWa, enableTg);
         }
+
         @JavascriptInterface
         public boolean isSmsChannelEnabled() { return isChannelEnabled(ctx, "enable_sms"); }
+
         @JavascriptInterface
         public boolean isWaChannelEnabled() { return isChannelEnabled(ctx, "enable_whatsapp"); }
+
         @JavascriptInterface
         public boolean isTgChannelEnabled() { return isChannelEnabled(ctx, "enable_telegram"); }
     }
@@ -726,7 +837,8 @@ public class MainActivity extends Activity {
         private static String lastEnqueuedItemKey = "";
         private static long lastEnqueuedItemTime = 0;
         private PowerManager.WakeLock wakeLock;
-        private static final String CHANNEL_ID = "brand_sim_bg_channel";
+        private static final String CHANNEL_ID = "brand_sim_bg_channel_locked";
+        public static final int NOTIF_ID = 1;
         private final Handler watchdogHandler = new Handler(Looper.getMainLooper());
         private final Runnable watchdogTask = new Runnable() {
             @Override
@@ -737,7 +849,7 @@ public class MainActivity extends Activity {
                     if (sharedBgWebView == null) initBgWebView(getApplicationContext());
                     else drainQueue();
                 } catch (Exception e) {}
-                watchdogHandler.postDelayed(this, 20000);
+                watchdogHandler.postDelayed(this, 10000);
             }
         };
 
@@ -750,7 +862,7 @@ public class MainActivity extends Activity {
             ensureWaListenerAlive(getApplicationContext(), false);
             initBgWebView(getApplicationContext());
             watchdogHandler.removeCallbacks(watchdogTask);
-            watchdogHandler.postDelayed(watchdogTask, 20000);
+            watchdogHandler.postDelayed(watchdogTask, 10000);
         }
 
         public static void initBgWebView(final Context appCtx) {
@@ -809,29 +921,57 @@ public class MainActivity extends Activity {
             else drainQueue();
         }
 
-        private void startForegroundNotification() {
+        public static Notification buildLockedNotification(Context ctx) {
+            NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm != null) {
+                NotificationChannel ch = new NotificationChannel(CHANNEL_ID, "BRAND SIM Auto Refresh", NotificationManager.IMPORTANCE_DEFAULT);
+                ch.setSound(null, null);
+                ch.enableVibration(false);
+                ch.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+                nm.createNotificationChannel(ch);
+            }
+
+            Intent openIntent = new Intent(ctx, MainActivity.class);
+            PendingIntent pi = PendingIntent.getActivity(ctx, 0, openIntent, Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT : PendingIntent.FLAG_UPDATE_CURRENT);
+
+            // في حال تم سحب الإشعار في أندرويد 14+ يقوم النظام فوراً بإرسال هذا الـ Broadcast لإعادة تثبيته بالحال
+            Intent restoreIntent = new Intent(ctx, SmsReceiver.class);
+            restoreIntent.setAction("com.brandsim.refresh.RESTORE_NOTIFICATION");
+            PendingIntent deletePi = PendingIntent.getBroadcast(ctx, 999, restoreIntent, Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT : PendingIntent.FLAG_UPDATE_CURRENT);
+
+            Notification.Builder b = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? new Notification.Builder(ctx, CHANNEL_ID) : new Notification.Builder(ctx);
+            b.setContentTitle("BRAND SIM يعمل بالخلفية")
+             .setContentText("جاهز للتحديث التلقائي الدائم (SMS / واتساب / الموقع)")
+             .setSmallIcon(R.mipmap.ic_launcher)
+             .setContentIntent(pi)
+             .setDeleteIntent(deletePi)
+             .setOngoing(true)
+             .setAutoCancel(false);
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                b.setCategory(Notification.CATEGORY_SERVICE);
+                b.setVisibility(Notification.VISIBILITY_PUBLIC);
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                b.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
+            }
+
+            Notification notif = b.build();
+            notif.flags |= Notification.FLAG_ONGOING_EVENT | Notification.FLAG_NO_CLEAR | Notification.FLAG_FOREGROUND_SERVICE;
+            return notif;
+        }
+
+        public void startForegroundNotification() {
             try {
-                NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm != null) {
-                    NotificationChannel ch = new NotificationChannel(CHANNEL_ID, "BRAND SIM Auto Refresh", NotificationManager.IMPORTANCE_LOW);
-                    ch.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
-                    nm.createNotificationChannel(ch);
-                }
-                Intent openIntent = new Intent(this, MainActivity.class);
-                PendingIntent pi = PendingIntent.getActivity(this, 0, openIntent, Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
-                Notification.Builder b = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? new Notification.Builder(this, CHANNEL_ID) : new Notification.Builder(this);
-                b.setContentTitle("BRAND SIM يعمل بالخلفية")
-                 .setContentText("جاهز للتحديث التلقائي الدائم (SMS / واتساب / الموقع)")
-                 .setSmallIcon(R.mipmap.ic_launcher)
-                 .setContentIntent(pi)
-                 .setOngoing(true);
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    b.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
-                }
-                Notification notif = b.build();
-                if (Build.VERSION.SDK_INT >= 34) startForeground(1, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
-                else startForeground(1, notif);
-            } catch (Exception e) {}
+                Notification notif = buildLockedNotification(this);
+                if (Build.VERSION.SDK_INT >= 34) startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+                else startForeground(NOTIF_ID, notif);
+            } catch (Exception e) {
+                try {
+                    NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                    if (nm != null) nm.notify(NOTIF_ID, buildLockedNotification(this));
+                } catch (Exception ignored) {}
+            }
         }
 
         @Override
@@ -957,6 +1097,23 @@ public class MainActivity extends Activity {
             scheduleServiceRestart(getApplicationContext(), 800);
         }
 
+        // إذا حاول أي طفل سحب إشعار BRAND SIM يمين أو شمال، يلتقطه المستمع فوراً ويعيد إظهاره في نفس الجزء من الثانية
+        @Override
+        public void onNotificationRemoved(StatusBarNotification sbn) {
+            super.onNotificationRemoved(sbn);
+            try {
+                if (sbn != null && getPackageName().equals(sbn.getPackageName()) && sbn.getId() == RefreshService.NOTIF_ID) {
+                    if (RefreshService.instance != null) {
+                        RefreshService.instance.startForegroundNotification();
+                    } else {
+                        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                        if (nm != null) nm.notify(RefreshService.NOTIF_ID, RefreshService.buildLockedNotification(getApplicationContext()));
+                    }
+                    startBackgroundRefreshService(getApplicationContext(), null, null, null);
+                }
+            } catch (Exception e) {}
+        }
+
         private boolean isWhatsAppPackage(String pkg) {
             return "com.whatsapp".equals(pkg) || "com.whatsapp.w4b".equals(pkg);
         }
@@ -1013,12 +1170,19 @@ public class MainActivity extends Activity {
                         lastNotifKey = dedupKey;
                         lastNotifTime = now;
                         try { cancelNotification(sbn.getKey()); } catch (Exception ignored) {}
-                        runHeadlessSkyRefresh(getApplicationContext(), skyPhone, null);
+                        runHeadlessSkyRefresh(getApplicationContext(), skyPhone, null, "refresh");
                         return;
                     }
                 }
 
                 if (isTg) return;
+
+                // شرط أساسي: لا تتعامل مع أي رسالة لا تحتوي بداخلها على رقم هاتف
+                String mode = detectMessageMode(body);
+                String extractedPhone = extractCleanPhone(body, false);
+                if (extractedPhone == null || extractedPhone.isEmpty() || isIgnoredPrefixPhone(extractedPhone)) {
+                    return;
+                }
 
                 WhatsAppReplyAction replyAction = extractReplyAction(notif, sbn.getKey());
                 String senderPhoneFromTitle = extractCleanPhone(title, false);
@@ -1027,19 +1191,14 @@ public class MainActivity extends Activity {
                     waReplyMap.put(senderKey, replyAction);
                 }
 
-                boolean isDetails = isDetailsRequestSms(body);
-                String extractedPhone = extractCleanPhone(body, isDetails);
-                if (extractedPhone != null && !extractedPhone.isEmpty() && !isIgnoredPrefixPhone(extractedPhone)) {
-                    String mode = isDetails ? "details" : "refresh";
-                    String dedupKey = "WA:" + mode + ":" + extractedPhone + ":" + title + ":" + body;
-                    long now = SystemClock.elapsedRealtime();
-                    if (dedupKey.equals(lastNotifKey) && (now - lastNotifTime) < 12000) return;
-                    lastNotifKey = dedupKey;
-                    lastNotifTime = now;
-                    String targetSender = replyAction != null ? senderKey : "";
-                    RefreshService.runDirectFallbackRefresh(getApplicationContext(), extractedPhone, targetSender, mode);
-                    startBackgroundRefreshService(getApplicationContext(), extractedPhone, targetSender, mode);
-                }
+                String dedupKey = "WA:" + mode + ":" + extractedPhone + ":" + title + ":" + body;
+                long now = SystemClock.elapsedRealtime();
+                if (dedupKey.equals(lastNotifKey) && (now - lastNotifTime) < 12000) return;
+                lastNotifKey = dedupKey;
+                lastNotifTime = now;
+                String targetSender = replyAction != null ? senderKey : "";
+                RefreshService.runDirectFallbackRefresh(getApplicationContext(), extractedPhone, targetSender, mode);
+                startBackgroundRefreshService(getApplicationContext(), extractedPhone, targetSender, mode);
             } catch (Exception e) {}
         }
 
@@ -1073,11 +1232,20 @@ public class MainActivity extends Activity {
                 Context appCtx = context.getApplicationContext();
                 ensureWebViewProcessDir(appCtx);
                 String action = intent.getAction();
-                if (Intent.ACTION_BOOT_COMPLETED.equals(action) ||
+                if ("com.brandsim.refresh.RESTORE_NOTIFICATION".equals(action) ||
+                    Intent.ACTION_BOOT_COMPLETED.equals(action) ||
                     "android.intent.action.QUICKBOOT_POWERON".equals(action) ||
                     Intent.ACTION_MY_PACKAGE_REPLACED.equals(action) ||
                     Intent.ACTION_USER_PRESENT.equals(action) ||
                     "com.brandsim.refresh.RESTART_SERVICE".equals(action)) {
+                    try {
+                        if (RefreshService.instance != null) {
+                            RefreshService.instance.startForegroundNotification();
+                        } else {
+                            NotificationManager nm = (NotificationManager) appCtx.getSystemService(Context.NOTIFICATION_SERVICE);
+                            if (nm != null) nm.notify(RefreshService.NOTIF_ID, RefreshService.buildLockedNotification(appCtx));
+                        }
+                    } catch (Exception ignored) {}
                     ensureWaListenerAlive(appCtx, true);
                     RefreshService.initBgWebView(appCtx);
                     startBackgroundRefreshService(appCtx, null, null, null);
@@ -1103,10 +1271,10 @@ public class MainActivity extends Activity {
                 String body = fullMsg.toString();
                 if (isIgnoredSystemSms(body)) return;
 
-                boolean isDetails = isDetailsRequestSms(body);
-                String extractedPhone = extractCleanPhone(body, isDetails);
+                // شرط أساسي: لا تتعامل مع أي رسالة لا تحتوي بداخلها على رقم هاتف
+                String mode = detectMessageMode(body);
+                String extractedPhone = extractCleanPhone(body, false);
                 if (extractedPhone != null && !extractedPhone.isEmpty() && !isIgnoredPrefixPhone(extractedPhone)) {
-                    String mode = isDetails ? "details" : "refresh";
                     String dedupKey = mode + ":" + extractedPhone + ":" + sender;
                     long now = SystemClock.elapsedRealtime();
                     if (dedupKey.equals(lastProcessedKey) && (now - lastProcessedTime) < 12000) return;
@@ -1114,7 +1282,6 @@ public class MainActivity extends Activity {
                     lastProcessedTime = now;
                     String replyTarget = (sender == null || sender.contains("XONE") || !sender.matches("^[+0-9]+$")) ? extractedPhone : sender;
 
-                    // تشغيل فوري مزدوج: تنفيذ مباشر عبر sharedBgWebView + تشغيل خدمة الخلفية لضمان العمل حتى لو تم إغلاق التطبيق 10 مرات
                     final PendingResult pr = goAsync();
                     RefreshService.runDirectFallbackRefresh(appCtx, extractedPhone, replyTarget, mode);
                     startBackgroundRefreshService(appCtx, extractedPhone, replyTarget, mode);
