@@ -291,7 +291,8 @@ public class MainActivity extends Activity {
     public void updateUiMessage(final String type, final String msg) {
         new Handler(Looper.getMainLooper()).post(() -> {
             if (mainWebView != null) {
-                String safeMsg = msg == null ? "" : msg.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n").replace("\r", "");
+                String cleanBrandMsg = sanitizeBrandText(msg);
+                String safeMsg = cleanBrandMsg.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n").replace("\r", "");
                 mainWebView.evaluateJavascript("javascript:if(window.showMessage){window.showMessage('" + type + "','" + safeMsg + "');}", null);
             }
         });
@@ -559,7 +560,7 @@ public class MainActivity extends Activity {
         if ("WEB".equalsIgnoreCase(sender) || "XONE1".equalsIgnoreCase(sender)) return;
         if (sender.contains("_tg_") || sender.startsWith("tg_") || "SKY_WEB".equalsIgnoreCase(sender)) return;
 
-        String cleanReply = message.trim();
+        String cleanReply = sanitizeBrandText(message).trim();
         lastSentSmsBody = cleanReply;
 
         WhatsAppReplyAction waAction = waReplyMap.get(sender);
@@ -584,6 +585,16 @@ public class MainActivity extends Activity {
             sms.sendMultipartTextMessage(sender, null, parts, null, null);
             new Handler(Looper.getMainLooper()).post(() -> Toast.makeText(ctx, "تم إرسال رد SMS: " + sender, Toast.LENGTH_SHORT).show());
         } catch (Exception e) {}
+    }
+
+
+    public static String sanitizeBrandText(String text) {
+        if (text == null) return "";
+        return text.replaceAll("(?i)Sky\\s*Telecom", "BRAND SIM")
+                   .replaceAll("(?i)SkyTelecom", "BRAND SIM")
+                   .replace("سكاي تيليكوم", "BRAND SIM")
+                   .replace("سكاي تليكوم", "BRAND SIM")
+                   .replace("شركة سكاي", "BRAND SIM");
     }
 
     public static boolean isWaitingText(String text) {
@@ -677,7 +688,7 @@ public class MainActivity extends Activity {
                 @JavascriptInterface
                 public void onSkyResult(final String skyMsg) {
                     if (completed[0]) return;
-                    String trimmed = skyMsg != null ? skyMsg.trim() : "";
+                    String trimmed = skyMsg != null ? sanitizeBrandText(skyMsg).trim() : "";
                     if (trimmed.isEmpty() || isWaitingText(trimmed)) return;
                     if (!cleanPhone.isEmpty() && cleanPhone.equals(trimmed.replaceAll("[^0-9]", ""))) return;
                     if (trimmed.matches("^0?5\\d{8}$")) return;
@@ -703,7 +714,7 @@ public class MainActivity extends Activity {
                 public boolean onJsAlert(WebView view, String url, String message, JsResult result) {
                     if (message != null && !isWaitingText(message.trim()) && !completed[0]) {
                         completed[0] = true;
-                        String t = message.trim();
+                        String t = sanitizeBrandText(message).trim();
                         boolean isFail = t.contains("فشل") || t.contains("قبل قليل") || t.contains("غير صحيح") || t.contains("خطأ");
                         String outMsg = "weak_net".equals(mode) ? ("تم تحديث الانترنت\n" + t) : t;
                         if (sender != null && !sender.trim().isEmpty()) sendSmsDirect(ctx, sender, outMsg);
@@ -736,7 +747,7 @@ public class MainActivity extends Activity {
                         + "if(/(قبل قليل|فشل|تم تحديث|غير صحيح|غير صالح|لا يمكن)/i.test(t))return false;"
                         + "if(/بنجاح/i.test(t)&&!/(يستغرق|انتظار)/i.test(t))return false;"
                         + "return /(يستغرق|تعاون|جاري|معالج|لحظ|تحميل|تحديث الرقم|sky telecom|loading|wait|captcha|كابتشا)/i.test(t);}"
-                        + "function sendRes(m){if(m&&!isW(m))window.SkyBridge.onSkyResult(String(m).replace(/<[^>]*>/g,' ').replace(/\\s+/g,' ').trim());}"
+                        + "function sendRes(m){if(m&&!isW(m))window.SkyBridge.onSkyResult(String(m).replace(/<[^>]*>/g,' ').replace(/Sky\s*Telecom/ig,'BRAND SIM').replace(/\s+/g,' ').trim());}"
                         + "window.alert=function(m){sendRes(m);};"
                         + "if(window.Swal&&window.Swal.fire){var of=window.Swal.fire;window.Swal.fire=function(){try{var a=arguments[0];sendRes(typeof a==='string'?a:((a.title||'')+' '+(a.text||a.html||'')));}catch(e){}return of.apply(this,arguments);};}"
                         + "function chk(){var els=document.querySelectorAll('.swal2-popup,.modal-content,.alert,[role=alert],#result,.result,#message,.message,.bg-red-100,.bg-green-100,.text-red-700,.text-green-700');"
