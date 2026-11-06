@@ -31,7 +31,7 @@ public class MainActivity extends Activity {
     public static MainActivity instance;
     public static String lastSentSmsBody = "";
     private static final String SKY_URL = "https://rn.sky-5g.net";
-    private static final long SKY_COOLDOWN_MS = 15L * 60L * 60L * 1000L; // 15 ساعة
+    private static final long SKY_COOLDOWN_MS = 20L * 60L * 1000L; // 20 دقيقة
     private static boolean webViewDataDirConfigured = false;
     public static final Map<String, WhatsAppReplyAction> waReplyMap = new ConcurrentHashMap<>();
 
@@ -516,12 +516,12 @@ public class MainActivity extends Activity {
         return null;
     }
 
-    // فحص وتطبيق قيد الـ 15 ساعة لأرقام سكاي
+    // فحص وتطبيق قيد الـ 20 دقيقة لأرقام سكاي
     public static long getSkyRemainingCooldownMs(Context ctx, String cleanPhone) {
         if (cleanPhone == null || cleanPhone.isEmpty()) return 0L;
         try {
             SharedPreferences prefs = ctx.getApplicationContext().getSharedPreferences("BrandSimSkyCooldowns", Context.MODE_PRIVATE);
-            long lastTime = prefs.getLong("sky_last_" + cleanPhone, 0L);
+            long lastTime = prefs.getLong("sky_20m_last_" + cleanPhone, 0L);
             if (lastTime <= 0L) return 0L;
             long elapsed = System.currentTimeMillis() - lastTime;
             if (elapsed >= 0L && elapsed < SKY_COOLDOWN_MS) {
@@ -535,7 +535,7 @@ public class MainActivity extends Activity {
         if (cleanPhone == null || cleanPhone.isEmpty()) return;
         try {
             SharedPreferences prefs = ctx.getApplicationContext().getSharedPreferences("BrandSimSkyCooldowns", Context.MODE_PRIVATE);
-            prefs.edit().putLong("sky_last_" + cleanPhone, System.currentTimeMillis()).commit();
+            prefs.edit().putLong("sky_20m_last_" + cleanPhone, System.currentTimeMillis()).commit();
         } catch (Exception e) {}
     }
 
@@ -551,7 +551,7 @@ public class MainActivity extends Activity {
         } else {
             timeStr = mins + " دقيقة";
         }
-        return "⚠️ عذراً، طلب التحديث للرقم " + cleanPhone + " مرفوض لتكرار الطلب.\nيُسمح بتحديث أرقام سكاي مرة واحدة فقط كل 15 ساعة.\nيرجى المحاولة بعد مرور: " + timeStr + ".";
+        return "⚠️ عذراً، طلب التحديث للرقم " + cleanPhone + " مرفوض لتكرار الطلب.\nيُسمح بتحديث أرقام براند سيم مرة واحدة فقط كل 20 دقيقة.\nيرجى المحاولة بعد مرور: " + timeStr + ".";
     }
 
     public static void sendSmsDirect(final Context ctx, final String sender, final String message) {
@@ -625,7 +625,7 @@ public class MainActivity extends Activity {
         if (phone == null || isIgnoredPrefixPhone(phone)) return;
         final String cleanPhone = phone.replaceAll("[^0-9]", "");
 
-        // فحص قيد الـ 15 ساعة لأرقام سكاي قبل إجراء أي طلب
+        // فحص قيد الـ 20 دقيقة لأرقام سكاي قبل إجراء أي طلب
         long remMs = getSkyRemainingCooldownMs(ctx, cleanPhone);
         if (remMs > 0L) {
             String rejectMsg = formatSkyCooldownMessage(cleanPhone, remMs);
@@ -644,12 +644,12 @@ public class MainActivity extends Activity {
         lastSkyRunPhone = cleanPhone;
         lastSkyRunTime = now;
 
-        // تسجيل وقت التحديث فوراً لمنع أي طلب مكرر خلال 15 ساعة
+        // تسجيل وقت التحديث فوراً لمنع أي طلب مكرر خلال 20 دقيقة
         recordSkyRefreshTimestamp(ctx, cleanPhone);
 
         new Handler(Looper.getMainLooper()).post(() -> {
             ensureWebViewProcessDir(ctx.getApplicationContext());
-            Toast.makeText(ctx, "جاري تحديث سكاي بالخلفية: " + cleanPhone, Toast.LENGTH_SHORT).show();
+            Toast.makeText(ctx, "جاري تحديث براند سيم بالخلفية: " + cleanPhone, Toast.LENGTH_SHORT).show();
             final WebView skyWebView = new WebView(ctx.getApplicationContext());
             skyWebView.layout(0, 0, 1080, 1920);
             WebSettings ss = skyWebView.getSettings();
@@ -689,7 +689,7 @@ public class MainActivity extends Activity {
                     if (instance != null) {
                         instance.updateUiMessage(isFail ? "warning" : "success", outMsg);
                     }
-                    new Handler(Looper.getMainLooper()).post(() -> Toast.makeText(ctx, "نتيجة سكاي (" + cleanPhone + "): " + outMsg, Toast.LENGTH_LONG).show());
+                    new Handler(Looper.getMainLooper()).post(() -> Toast.makeText(ctx, "نتيجة براند سيم (" + cleanPhone + "): " + outMsg, Toast.LENGTH_LONG).show());
                     new Handler(Looper.getMainLooper()).postDelayed(finishCleanup, 2000);
                 }
 
