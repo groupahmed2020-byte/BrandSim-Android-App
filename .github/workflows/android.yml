@@ -28,29 +28,41 @@ jobs:
           mkdir -p app/src/main/res/mipmap-xxhdpi
           mkdir -p app/src/main/res/mipmap-xxxhdpi
 
-          MANIFEST_FILE=$(find . -name "AndroidManifest.xml" | head -n 1)
-          if [ -n "$MANIFEST_FILE" ] && [ "$MANIFEST_FILE" != "./app/src/main/AndroidManifest.xml" ]; then
-            cp "$MANIFEST_FILE" app/src/main/AndroidManifest.xml
+          if [ -f "./AndroidManifest.xml" ]; then
+            cp -f "./AndroidManifest.xml" app/src/main/AndroidManifest.xml
+          else
+            MANIFEST_FILE=$(find . -name "AndroidManifest.xml" | head -n 1)
+            if [ -n "$MANIFEST_FILE" ] && [ "$MANIFEST_FILE" != "./app/src/main/AndroidManifest.xml" ]; then
+              cp -f "$MANIFEST_FILE" app/src/main/AndroidManifest.xml
+            fi
           fi
 
-          JAVA_FILE=$(find . -name "MainActivity.java" | head -n 1)
-          if [ -n "$JAVA_FILE" ] && [ "$JAVA_FILE" != "./app/src/main/java/com/brandsim/refresh/MainActivity.java" ]; then
-            cp "$JAVA_FILE" app/src/main/java/com/brandsim/refresh/MainActivity.java
+          if [ -f "./MainActivity.java" ]; then
+            cp -f "./MainActivity.java" app/src/main/java/com/brandsim/refresh/MainActivity.java
+          else
+            JAVA_FILE=$(find . -name "MainActivity.java" | head -n 1)
+            if [ -n "$JAVA_FILE" ] && [ "$JAVA_FILE" != "./app/src/main/java/com/brandsim/refresh/MainActivity.java" ]; then
+              cp -f "$JAVA_FILE" app/src/main/java/com/brandsim/refresh/MainActivity.java
+            fi
           fi
 
-          HTML_FILE=$(find . -name "refresh.html" | head -n 1)
-          if [ -n "$HTML_FILE" ] && [ "$HTML_FILE" != "./app/src/main/assets/refresh.html" ]; then
-            cp "$HTML_FILE" app/src/main/assets/refresh.html
+          if [ -f "./refresh.html" ]; then
+            cp -f "./refresh.html" app/src/main/assets/refresh.html
+          else
+            HTML_FILE=$(find . -name "refresh.html" | head -n 1)
+            if [ -n "$HTML_FILE" ] && [ "$HTML_FILE" != "./app/src/main/assets/refresh.html" ]; then
+              cp -f "$HTML_FILE" app/src/main/assets/refresh.html
+            fi
           fi
 
           ICON_FILE=$(find . -name "ic_launcher.png" | head -n 1)
           if [ -n "$ICON_FILE" ]; then
-            cp "$ICON_FILE" app/src/main/res/drawable/ic_launcher.png
-            cp "$ICON_FILE" app/src/main/res/mipmap-mdpi/ic_launcher.png
-            cp "$ICON_FILE" app/src/main/res/mipmap-hdpi/ic_launcher.png
-            cp "$ICON_FILE" app/src/main/res/mipmap-xhdpi/ic_launcher.png
-            cp "$ICON_FILE" app/src/main/res/mipmap-xxhdpi/ic_launcher.png
-            cp "$ICON_FILE" app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+            cp -f "$ICON_FILE" app/src/main/res/drawable/ic_launcher.png
+            cp -f "$ICON_FILE" app/src/main/res/mipmap-mdpi/ic_launcher.png
+            cp -f "$ICON_FILE" app/src/main/res/mipmap-hdpi/ic_launcher.png
+            cp -f "$ICON_FILE" app/src/main/res/mipmap-xhdpi/ic_launcher.png
+            cp -f "$ICON_FILE" app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+            cp -f "$ICON_FILE" app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
           fi
 
       - name: Generate Gradle Configs
@@ -70,8 +82,8 @@ jobs:
                   applicationId "com.brandsim.refresh"
                   minSdk 23
                   targetSdk 34
-                  versionCode 2
-                  versionName "1.1"
+                  versionCode 4
+                  versionName "1.3"
               }
               compileOptions {
                   sourceCompatibility JavaVersion.VERSION_1_8
