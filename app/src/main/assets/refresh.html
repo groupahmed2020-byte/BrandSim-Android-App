@@ -64,7 +64,7 @@ const AREEN_GAS_URL="https://script.google.com/macros/s/AKfycbxidpoKH8PnhxSvKggQ
 const QUICKLINE_GAS_URL="https://script.google.com/macros/s/AKfycbzoFY7vXfDNsMBieM33Ohym4o3oif6_hoc1FI0RFzKbEgvfALOVMBWQKNt14VOakcQg/exec";
 const AYLOL_WORKER_URL="https://steep-shadow-66a0.groupahmed2020.workers.dev/";
 const NETLIFY_QUERY_URL="https://incredible-crumble-58566c.netlify.app/.netlify/functions/query";
-const SKY_COOLDOWN_MS=15*60*60*1000; // 15 ساعة
+const SKY_COOLDOWN_MS=20*60*1000; // 20 دقيقة
 
 const i18n=Object.freeze({
   ar:Object.freeze({welcome:"مرحباً بك في براند سيم",subtitle:"أدخل رقم الهاتف لإجراء تحديث وتنشيط فوري للشريحة",label:"📱 رقم الهاتف:",placeholder:"05XXXXXXXX",btn:"تحديث الرقم الآن",loading:"جاري الفحص والتحديث...",switchBtn:"עברית",invalidPhone:"يرجى إدخال رقم هاتف صحيح مكون من 10 أرقام ويبدأ بـ 05",notAuthorized:"عذراً، هذا الرقم غير مسجل في منظومة براند سيم (BRAND SIM) ولا يمكن تحديثه.",skyExpired:"الرقم منتهي اشتراكه، الرجاء التواصل مع المندوب من أجل التجديد",defaultSuccess:"✅ تم إرسال طلب تحديث وتنشيط الرقم بنجاح!",defaultError:"⚠️ تعذر تحديث الرقم حالياً، يرجى التأكد من الرقم أو المحاولة لاحقاً."}),
@@ -168,10 +168,10 @@ function checkSkyCooldown(cleanPhone){
       const rem=Number(window.AndroidBridge.getSkyCooldownRemainingMs(cleanPhone)||0);
       if(rem>0){
         const msg=window.AndroidBridge.getSkyCooldownRejectMsg(cleanPhone);
-        return{blocked:true,msg:msg||("⚠️ عذراً، طلب التحديث للرقم "+cleanPhone+" مرفوض لتكرار الطلب. التحديث متاح مرة واحدة فقط كل 15 ساعة.")};
+        return{blocked:true,msg:msg||("⚠️ عذراً، طلب التحديث للرقم "+cleanPhone+" مرفوض لتكرار الطلب. التحديث متاح مرة واحدة فقط كل 20 دقيقة.")};
       }
     }
-    const raw=localStorage.getItem("sky_cd_"+cleanPhone);
+    const raw=localStorage.getItem("sky_20m_cd_"+cleanPhone);
     if(raw){
       const elapsed=Date.now()-Number(raw);
       if(elapsed>=0&&elapsed<SKY_COOLDOWN_MS){
@@ -182,7 +182,7 @@ function checkSkyCooldown(cleanPhone){
         const timeStr=(hrs>0&&mins>0)?(hrs+" ساعة و "+mins+" دقيقة"):(hrs>0?(hrs+" ساعة"):(mins+" دقيقة"));
         return{
           blocked:true,
-          msg:"⚠️ عذراً، طلب التحديث للرقم "+cleanPhone+" مرفوض لتكرار الطلب.\nيُسمح بتحديث أرقام سكاي مرة واحدة فقط كل 15 ساعة.\nيرجى المحاولة بعد مرور: "+timeStr+"."
+          msg:"⚠️ عذراً، طلب التحديث للرقم "+cleanPhone+" مرفوض لتكرار الطلب.\nيُسمح بتحديث أرقام براند سيم مرة واحدة فقط كل 20 دقيقة.\nيرجى المحاولة بعد مرور: "+timeStr+"."
         };
       }
     }
@@ -191,7 +191,7 @@ function checkSkyCooldown(cleanPhone){
 }
 
 function recordSkyCooldown(cleanPhone){
-  try{localStorage.setItem("sky_cd_"+cleanPhone,String(Date.now()));}catch(e){}
+  try{localStorage.setItem("sky_20m_cd_"+cleanPhone,String(Date.now()));}catch(e){}
   try{
     if(window.AndroidBridge&&typeof window.AndroidBridge.markSkyRefreshed==="function"){
       window.AndroidBridge.markSkyRefreshed(cleanPhone);
@@ -256,11 +256,11 @@ function isRunningOnExternalWeb(){
 async function refreshViaSky(phone,senderPhone="",mode="refresh"){
   if(window.AndroidBridge&&typeof window.AndroidBridge.autoRefreshSkyWithMode==="function"){
     window.AndroidBridge.autoRefreshSkyWithMode(phone,senderPhone||"",mode||"refresh");
-    return{ok:true,isSkyApp:true,msg:"⏳ جاري تحديث شريحة سكاي تلقائياً بالخلفية..."};
+    return{ok:true,isSkyApp:true,msg:"⏳ جاري تحديث شريحة براند سيم تلقائياً بالخلفية..."};
   }
   if(window.AndroidBridge&&typeof window.AndroidBridge.autoRefreshSky==="function"){
     window.AndroidBridge.autoRefreshSky(phone,senderPhone||"");
-    return{ok:true,isSkyApp:true,msg:"⏳ جاري تحديث شريحة سكاي تلقائياً بالخلفية..."};
+    return{ok:true,isSkyApp:true,msg:"⏳ جاري تحديث شريحة براند سيم تلقائياً بالخلفية..."};
   }
 
   recordSkyCooldown(phone);
@@ -360,7 +360,7 @@ async function executeRefresh(rawNumber,senderPhone="",mode="refresh"){
       return;
     }
 
-    // 2. فحص قيد الـ 15 ساعة لأرقام سكاي (يتم رفض أي طلب تحديث مكرر لنفس رقم سكاي قبل مرور 15 ساعة)
+    // 2. فحص قيد الـ 20 دقيقة لأرقام سكاي (يتم رفض أي طلب تحديث مكرر لنفس رقم سكاي قبل مرور 20 دقيقة)
     if(isSky){
       const cd=checkSkyCooldown(cleanNumber);
       if(cd.blocked){
